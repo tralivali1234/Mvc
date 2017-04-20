@@ -10,10 +10,10 @@ using System.Reflection;
 using System.Text;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc.Razor.Compilation;
+using Microsoft.AspNetCore.Razor.Language;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -32,7 +32,6 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
         private const string CS0246 = nameof(CS0246);
 
         private readonly CSharpCompiler _compiler;
-        private readonly IFileProvider _fileProvider;
         private readonly ILogger _logger;
         private readonly Action<RoslynCompilationContext> _compilationCallback;
 
@@ -41,38 +40,36 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
         /// </summary>
         /// <param name="compiler">The <see cref="CSharpCompiler"/>.</param>
         /// <param name="optionsAccessor">Accessor to <see cref="RazorViewEngineOptions"/>.</param>
-        /// <param name="fileProviderAccessor">The <see cref="IRazorViewEngineFileProviderAccessor"/>.</param>
         /// <param name="loggerFactory">The <see cref="ILoggerFactory"/>.</param>
         public DefaultRoslynCompilationService(
             CSharpCompiler compiler,
-            IRazorViewEngineFileProviderAccessor fileProviderAccessor,
             IOptions<RazorViewEngineOptions> optionsAccessor,
             ILoggerFactory loggerFactory)
         {
             _compiler = compiler;
-            _fileProvider = fileProviderAccessor.FileProvider;
             _compilationCallback = optionsAccessor.Value.CompilationCallback;
             _logger = loggerFactory.CreateLogger<DefaultRoslynCompilationService>();
         }
 
         /// <inheritdoc />
-        public CompilationResult Compile(RelativeFileInfo fileInfo, string compilationContent)
+        public CompilationResult Compile(RazorCodeDocument codeDocument, RazorCSharpDocument cSharpDocument)
         {
-            if (fileInfo == null)
+            if (codeDocument == null)
             {
-                throw new ArgumentNullException(nameof(fileInfo));
+                throw new ArgumentNullException(nameof(codeDocument));
             }
 
-            if (compilationContent == null)
+            if (cSharpDocument == null)
             {
-                throw new ArgumentNullException(nameof(compilationContent));
+                throw new ArgumentNullException(nameof(codeDocument));
             }
 
-            _logger.GeneratedCodeToAssemblyCompilationStart(fileInfo.RelativePath);
+            _logger.GeneratedCodeToAssemblyCompilationStart(codeDocument.Source.FileName);
+
             var startTimestamp = _logger.IsEnabled(LogLevel.Debug) ? Stopwatch.GetTimestamp() : 0;
 
             var assemblyName = Path.GetRandomFileName();
-            var compilation = CreateCompilation(compilationContent, assemblyName);
+            var compilation = CreateCompilation(cSharpDocument.GeneratedCode, assemblyName);
 
             using (var assemblyStream = new MemoryStream())
             {
@@ -86,8 +83,8 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
                     if (!result.Success)
                     {
                         return GetCompilationFailedResult(
-                            fileInfo.RelativePath,
-                            compilationContent,
+                            codeDocument,
+                            cSharpDocument.GeneratedCode,
                             assemblyName,
                             result.Diagnostics);
                     }
@@ -98,7 +95,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
                     var assembly = LoadAssembly(assemblyStream, pdbStream);
                     var type = assembly.GetExportedTypes().FirstOrDefault(a => !a.IsNested);
 
-                    _logger.GeneratedCodeToAssemblyCompilationEnd(fileInfo.RelativePath, startTimestamp);
+                    _logger.GeneratedCodeToAssemblyCompilationEnd(codeDocument.Source.FileName, startTimestamp);
 
                     return new CompilationResult(type);
                 }
@@ -122,14 +119,14 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
 
         // Internal for unit testing
         internal CompilationResult GetCompilationFailedResult(
-            string relativePath,
+            RazorCodeDocument codeDocument,
             string compilationContent,
             string assemblyName,
             IEnumerable<Diagnostic> diagnostics)
         {
             var diagnosticGroups = diagnostics
                 .Where(IsError)
-                .GroupBy(diagnostic => GetFilePath(relativePath, diagnostic), StringComparer.Ordinal);
+                .GroupBy(diagnostic => GetFilePath(codeDocument, diagnostic), StringComparer.Ordinal);
 
             var failures = new List<CompilationFailure>();
             foreach (var group in diagnosticGroups)
@@ -144,7 +141,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
                 }
                 else
                 {
-                    sourceFileContent = ReadFileContentsSafely(_fileProvider, sourceFilePath);
+                    sourceFileContent = GetContent(codeDocument, sourceFilePath);
                 }
 
                 string additionalMessage = null;
@@ -153,9 +150,8 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
                     string.Equals(CS0246, g.Id, StringComparison.OrdinalIgnoreCase)))
                 {
                     additionalMessage = Resources.FormatCompilation_DependencyContextIsNotSpecified(
-                        "preserveCompilationContext",
-                        "buildOptions",
-                        "project.json");
+                        "Microsoft.NET.Sdk.Web",
+                        "PreserveCompilationContext");
                 }
 
                 var compilationFailure = new CompilationFailure(
@@ -171,11 +167,11 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
             return new CompilationResult(failures);
         }
 
-        private static string GetFilePath(string relativePath, Diagnostic diagnostic)
+        private static string GetFilePath(RazorCodeDocument codeDocument, Diagnostic diagnostic)
         {
             if (diagnostic.Location == Location.None)
             {
-                return relativePath;
+                return codeDocument.Source.FileName;
             }
 
             return diagnostic.Location.GetMappedLineSpan().Path;
@@ -189,29 +185,33 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
         public static Assembly LoadAssembly(MemoryStream assemblyStream, MemoryStream pdbStream)
         {
             var assembly =
-#if NET451
+#if NET46
                 Assembly.Load(assemblyStream.ToArray(), pdbStream.ToArray());
-#else
+#elif NETSTANDARD1_6
                 System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromStream(assemblyStream, pdbStream);
+#else
+#error target frameworks need to be updated
 #endif
             return assembly;
         }
 
-        private static string ReadFileContentsSafely(IFileProvider fileProvider, string filePath)
+        private static string GetContent(RazorCodeDocument codeDocument, string filePath)
         {
-            var fileInfo = fileProvider.GetFileInfo(filePath);
-            if (fileInfo.Exists)
+            if (filePath == codeDocument.Source.FileName)
             {
-                try
+                var chars = new char[codeDocument.Source.Length];
+                codeDocument.Source.CopyTo(0, chars, 0, chars.Length);
+                return new string(chars);
+            }
+
+            for (var i = 0; i < codeDocument.Imports.Count; i++)
+            {
+                var import = codeDocument.Imports[i];
+                if (filePath == import.FileName)
                 {
-                    using (var reader = new StreamReader(fileInfo.CreateReadStream()))
-                    {
-                        return reader.ReadToEnd();
-                    }
-                }
-                catch
-                {
-                    // Ignore any failures
+                    var chars = new char[codeDocument.Source.Length];
+                    codeDocument.Source.CopyTo(0, chars, 0, chars.Length);
+                    return new string(chars);
                 }
             }
 

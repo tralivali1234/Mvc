@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Microsoft.AspNetCore.Mvc.Infrastructure
 {
-#if NET451
+#if NET46
     public class ActionContextAccessorTests
     {
         private static void DomainFunc()
@@ -22,7 +22,12 @@ namespace Microsoft.AspNetCore.Mvc.Infrastructure
             // Arrange
             var accessor = new ActionContextAccessor();
             var context = new ActionContext();
-            var domain = AppDomain.CreateDomain("newDomain");
+            var setupInfo = new AppDomainSetup
+            {
+                ApplicationBase = AppDomain.CurrentDomain.BaseDirectory
+            };
+
+            var domain = AppDomain.CreateDomain("newDomain", securityInfo: null, info: setupInfo);
 
             // Act
             domain.DoCallBack(DomainFunc);
@@ -33,5 +38,8 @@ namespace Microsoft.AspNetCore.Mvc.Infrastructure
             Assert.True(ReferenceEquals(context, accessor.ActionContext));
         }
     }
+#elif NETCOREAPP2_0
+#else
+#error target frameworks needs to be updated.    
 #endif
 }

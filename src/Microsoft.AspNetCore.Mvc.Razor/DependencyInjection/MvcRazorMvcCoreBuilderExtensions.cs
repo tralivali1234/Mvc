@@ -6,12 +6,10 @@ using System.Linq;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Razor;
 using Microsoft.AspNetCore.Mvc.Razor.Compilation;
-using Microsoft.AspNetCore.Mvc.Razor.Directives;
+using Microsoft.AspNetCore.Mvc.Razor.Extensions;
 using Microsoft.AspNetCore.Mvc.Razor.Internal;
-using Microsoft.AspNetCore.Mvc.Razor.TagHelpers;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using Microsoft.AspNetCore.Razor.Compilation.TagHelpers;
-using Microsoft.AspNetCore.Razor.Runtime.TagHelpers;
+using Microsoft.AspNetCore.Razor.Language;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -63,11 +61,6 @@ namespace Microsoft.Extensions.DependencyInjection
 
         private static void AddRazorViewEngineFeatureProviders(IMvcCoreBuilder builder)
         {
-            if (!builder.PartManager.FeatureProviders.OfType<TagHelperFeatureProvider>().Any())
-            {
-                builder.PartManager.FeatureProviders.Add(new TagHelperFeatureProvider());
-            }
-
             if (!builder.PartManager.FeatureProviders.OfType<MetadataReferenceFeatureProvider>().Any())
             {
                 builder.PartManager.FeatureProviders.Add(new MetadataReferenceFeatureProvider());
@@ -101,7 +94,7 @@ namespace Microsoft.Extensions.DependencyInjection
         /// </summary>
         /// <remarks>
         /// The callback will be invoked on any <typeparamref name="TTagHelper"/> instance before the
-        /// <see cref="ITagHelper.ProcessAsync(TagHelperContext, TagHelperOutput)"/> method is called.
+        /// <see cref="ITagHelperComponent.ProcessAsync(TagHelperContext, TagHelperOutput)"/> method is called.
         /// </remarks>
         /// <typeparam name="TTagHelper">The type of <see cref="ITagHelper"/> being initialized.</typeparam>
         /// <param name="builder">The <see cref="IMvcCoreBuilder"/> instance this method extends.</param>
@@ -142,10 +135,8 @@ namespace Microsoft.Extensions.DependencyInjection
 
             // DependencyContextRazorViewEngineOptionsSetup needs to run after RazorViewEngineOptionsSetup.
             // The ordering of the following two lines is important to ensure this behavior.
-#pragma warning disable 0618
             services.TryAddEnumerable(
                 ServiceDescriptor.Transient<IConfigureOptions<RazorViewEngineOptions>, RazorViewEngineOptionsSetup>());
-#pragma warning restore 0618
             services.TryAddEnumerable(
                 ServiceDescriptor.Transient<
                     IConfigureOptions<RazorViewEngineOptions>,
@@ -157,26 +148,36 @@ namespace Microsoft.Extensions.DependencyInjection
 
             services.TryAddSingleton<IRazorViewEngine, RazorViewEngine>();
 
-            services.TryAdd(ServiceDescriptor.Singleton<IChunkTreeCache>(serviceProvider =>
-            {
-                var accessor = serviceProvider.GetRequiredService<IRazorViewEngineFileProviderAccessor>();
-                return new DefaultChunkTreeCache(accessor.FileProvider);
-            }));
-
-            services.TryAddSingleton<ITagHelperTypeResolver, TagHelperTypeResolver>();
-            services.TryAddSingleton<ITagHelperDescriptorFactory>(s => new TagHelperDescriptorFactory(designTime: false));
-            services.TryAddSingleton<TagHelperDescriptorResolver>();
-            services.TryAddSingleton<ViewComponentTagHelperDescriptorResolver>();
-            services.TryAddSingleton<ITagHelperDescriptorResolver, CompositeTagHelperDescriptorResolver>();
-
             // Caches compilation artifacts across the lifetime of the application.
             services.TryAddSingleton<ICompilerCacheProvider, DefaultCompilerCacheProvider>();
 
             // In the default scenario the following services are singleton by virtue of being initialized as part of
             // creating the singleton RazorViewEngine instance.
             services.TryAddTransient<IRazorPageFactoryProvider, DefaultRazorPageFactoryProvider>();
-            services.TryAddTransient<IRazorCompilationService, RazorCompilationService>();
-            services.TryAddTransient<IMvcRazorHost, MvcRazorHost>();
+
+
+            //
+            // Razor compilation infrastructure
+            //
+            services.TryAddSingleton<RazorProject, DefaultRazorProject>();
+            services.TryAddSingleton<RazorTemplateEngine, MvcRazorTemplateEngine>();
+            services.TryAddSingleton<RazorCompiler>();
+
+            services.TryAddSingleton<RazorEngine>(s =>
+            {
+                return RazorEngine.Create(b =>
+                {
+                    RazorExtensions.Register(b);
+
+                    b.Features.Add(new Microsoft.CodeAnalysis.Razor.DefaultTagHelperFeature());
+
+                    var referenceManager = s.GetRequiredService<RazorReferenceManager>();
+                    b.Features.Add(new Microsoft.CodeAnalysis.Razor.DefaultMetadataReferenceFeature()
+                    {
+                        References = referenceManager.CompilationReferences.ToArray(),
+                    });
+                });
+            });
 
             // This caches Razor page activation details that are valid for the lifetime of the application.
             services.TryAddSingleton<IRazorPageActivator, RazorPageActivator>();

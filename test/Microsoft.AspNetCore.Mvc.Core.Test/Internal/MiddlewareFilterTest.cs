@@ -14,11 +14,13 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Testing;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
@@ -275,35 +277,14 @@ namespace Microsoft.AspNetCore.Mvc.Internal
 
             var actionContext = new ActionContext(httpContext, new RouteData(), actionDescriptor);
 
-            var filterProvider = new Mock<IFilterProvider>(MockBehavior.Strict);
-            filterProvider
-                .Setup(fp => fp.OnProvidersExecuting(It.IsAny<FilterProviderContext>()))
-                .Callback<FilterProviderContext>(context =>
-                {
-                    foreach (var filterMetadata in filters)
-                    {
-                        context.Results.Add(new FilterItem(new FilterDescriptor(filterMetadata, FilterScope.Action))
-                        {
-                            Filter = filterMetadata,
-                        });
-                    }
-                });
-
-            filterProvider
-                .Setup(fp => fp.OnProvidersExecuted(It.IsAny<FilterProviderContext>()))
-                .Verifiable();
-
-            filterProvider
-                .SetupGet(fp => fp.Order)
-                .Returns(-1000);
-
             var diagnosticSource = new DiagnosticListener("Microsoft.AspNetCore");
             diagnosticSource.SubscribeWithAdapter(new TestDiagnosticListener());
 
             var invoker = new TestControllerActionInvoker(
-                new[] { filterProvider.Object },
+                filters,
                 new MockControllerFactory(controller ?? this),
-                new TestControllerArgumentBinder(actionParameters: null),
+                new TestParameterBinder(actionParameters: null),
+                TestModelMetadataProvider.CreateDefaultProvider(),
                 new NullLoggerFactory().CreateLogger<ControllerActionInvoker>(),
                 diagnosticSource,
                 actionContext,
@@ -400,8 +381,9 @@ namespace Microsoft.AspNetCore.Mvc.Internal
 
         private static ControllerActionInvokerCache CreateFilterCache(IFilterProvider[] filterProviders = null)
         {
-            var services = new ServiceCollection().BuildServiceProvider();
-            var descriptorProvider = new ActionDescriptorCollectionProvider(services);
+            var descriptorProvider = new ActionDescriptorCollectionProvider(
+                Enumerable.Empty<IActionDescriptorProvider>(),
+                Enumerable.Empty<IActionDescriptorChangeProvider>());
             return new ControllerActionInvokerCache(
                 descriptorProvider,
                 filterProviders.AsEnumerable() ?? new List<IFilterProvider>());
@@ -410,23 +392,24 @@ namespace Microsoft.AspNetCore.Mvc.Internal
         private class TestControllerActionInvoker : ControllerActionInvoker
         {
             public TestControllerActionInvoker(
-                IFilterProvider[] filterProviders,
+                IFilterMetadata[] filters,
                 MockControllerFactory controllerFactory,
-                IControllerArgumentBinder argumentBinder,
+                ParameterBinder parameterBinder,
+                IModelMetadataProvider modelMetadataProvider,
                 ILogger logger,
                 DiagnosticSource diagnosticSource,
                 ActionContext actionContext,
                 IReadOnlyList<IValueProviderFactory> valueProviderFactories,
                 int maxAllowedErrorsInModelState)
                 : base(
-                      CreateFilterCache(filterProviders),
                       controllerFactory,
-                      argumentBinder,
+                      parameterBinder,
+                      modelMetadataProvider,
                       logger,
                       diagnosticSource,
-                      actionContext,
-                      valueProviderFactories,
-                      maxAllowedErrorsInModelState)
+                      CreatControllerContext(actionContext, valueProviderFactories, maxAllowedErrorsInModelState),
+                      filters,
+                      CreateExecutor((ControllerActionDescriptor)actionContext.ActionDescriptor))
             {
                 ControllerFactory = controllerFactory;
             }
@@ -440,14 +423,51 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                 // Make sure that the controller was disposed in every test that creates ones.
                 ControllerFactory.Verify();
             }
+
+            private static ObjectMethodExecutor CreateExecutor(ControllerActionDescriptor actionDescriptor)
+            {
+                return ObjectMethodExecutor.Create(actionDescriptor.MethodInfo, actionDescriptor.ControllerTypeInfo);
+            }
+
+            private static ControllerContext CreatControllerContext(
+                ActionContext actionContext,
+                IReadOnlyList<IValueProviderFactory> valueProviderFactories,
+                int maxAllowedErrorsInModelState)
+            {
+                var controllerContext = new ControllerContext(actionContext)
+                {
+                    ValueProviderFactories = valueProviderFactories.ToList()
+                };
+                controllerContext.ModelState.MaxAllowedErrors = maxAllowedErrorsInModelState;
+
+                return controllerContext;
+            }
         }
 
-        private class TestControllerArgumentBinder : IControllerArgumentBinder
+        private class TestParameterBinder : ParameterBinder
         {
             private readonly IDictionary<string, object> _actionParameters;
-            public TestControllerArgumentBinder(IDictionary<string, object> actionParameters)
+            public TestParameterBinder(IDictionary<string, object> actionParameters)
+                : base(
+                    new EmptyModelMetadataProvider(),
+                    TestModelBinderFactory.CreateDefault(),
+                    Mock.Of<IObjectModelValidator>())
             {
                 _actionParameters = actionParameters;
+            }
+
+            public override Task<ModelBindingResult> BindModelAsync(
+                ActionContext actionContext,
+                IValueProvider valueProvider,
+                ParameterDescriptor parameter,
+                object value)
+            {
+                if (_actionParameters.TryGetValue(parameter.Name, out var result))
+                {
+                    return Task.FromResult(ModelBindingResult.Success(result));
+                }
+
+                return Task.FromResult(ModelBindingResult.Failed());
             }
 
             public Task BindArgumentsAsync(

@@ -2,8 +2,8 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
-using Microsoft.AspNetCore.Mvc.Razor.Compilation;
-using Microsoft.AspNetCore.Mvc.Razor.Internal;
+using System.Linq.Expressions;
+using System.Reflection;
 
 namespace Microsoft.AspNetCore.Mvc.Razor.Internal
 {
@@ -13,37 +13,15 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
     /// </summary>
     public class DefaultRazorPageFactoryProvider : IRazorPageFactoryProvider
     {
-        /// <remarks>
-        /// This delegate holds on to an instance of <see cref="IRazorCompilationService"/>.
-        /// </remarks>
-        private readonly Func<RelativeFileInfo, CompilationResult> _compileDelegate;
-        private readonly ICompilerCacheProvider _compilerCacheProvider;
-        private ICompilerCache _compilerCache;
+        private readonly RazorCompiler _compiler;
 
         /// <summary>
         /// Initializes a new instance of <see cref="DefaultRazorPageFactoryProvider"/>.
         /// </summary>
-        /// <param name="razorCompilationService">The <see cref="IRazorCompilationService"/>.</param>
-        /// <param name="compilerCacheProvider">The <see cref="ICompilerCacheProvider"/>.</param>
-        public DefaultRazorPageFactoryProvider(
-            IRazorCompilationService razorCompilationService,
-            ICompilerCacheProvider compilerCacheProvider)
+        /// <param name="compiler">The <see cref="RazorCompiler"/>.</param>
+        public DefaultRazorPageFactoryProvider(RazorCompiler compiler)
         {
-            _compileDelegate = razorCompilationService.Compile;
-            _compilerCacheProvider = compilerCacheProvider;
-        }
-
-        private ICompilerCache CompilerCache
-        {
-            get
-            {
-                if (_compilerCache == null)
-                {
-                    _compilerCache = _compilerCacheProvider.Cache;
-                }
-
-                return _compilerCache;
-            }
+            _compiler = compiler;
         }
 
         /// <inheritdoc />
@@ -59,10 +37,23 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
                 // For tilde slash paths, drop the leading ~ to make it work with the underlying IFileProvider.
                 relativePath = relativePath.Substring(1);
             }
-            var result = CompilerCache.GetOrAdd(relativePath, _compileDelegate);
+
+            var result = _compiler.Compile(relativePath);
             if (result.Success)
             {
-                return new RazorPageFactoryResult(result.PageFactory, result.ExpirationTokens, result.IsPrecompiled);
+                var compiledType = result.CompiledType;
+
+                var newExpression = Expression.New(compiledType);
+                var pathProperty = compiledType.GetTypeInfo().GetProperty(nameof(IRazorPage.Path));
+
+                // Generate: page.Path = relativePath;
+                // Use the normalized path specified from the result.
+                var propertyBindExpression = Expression.Bind(pathProperty, Expression.Constant(result.RelativePath));
+                var objectInitializeExpression = Expression.MemberInit(newExpression, propertyBindExpression);
+                var pageFactory = Expression
+                    .Lambda<Func<IRazorPage>>(objectInitializeExpression)
+                    .Compile();
+                return new RazorPageFactoryResult(pageFactory, result.ExpirationTokens, result.IsPrecompiled);
             }
             else
             {

@@ -19,7 +19,7 @@ namespace Microsoft.AspNetCore.Mvc
     /// <see cref="ObjectResult.ContentTypes"/>.
     /// </summary>
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
-    public class ProducesAttribute : ResultFilterAttribute, IApiResponseMetadataProvider
+    public class ProducesAttribute : Attribute, IResultFilter, IOrderedFilter, IApiResponseMetadataProvider
     {
         /// <summary>
         /// Initializes an instance of <see cref="ProducesAttribute"/>.
@@ -72,14 +72,16 @@ namespace Microsoft.AspNetCore.Mvc
         public int StatusCode => StatusCodes.Status200OK;
 
         /// <inheritdoc />
-        public override void OnResultExecuting(ResultExecutingContext context)
+        public int Order { get; set; }
+
+        /// <inheritdoc />
+        public virtual void OnResultExecuting(ResultExecutingContext context)
         {
             if (context == null)
             {
                 throw new ArgumentNullException(nameof(context));
             }
 
-            base.OnResultExecuting(context);
             var objectResult = context.Result as ObjectResult;
 
             if (objectResult != null)
@@ -100,26 +102,9 @@ namespace Microsoft.AspNetCore.Mvc
             }
         }
 
-        private MediaTypeCollection GetContentTypes(string firstArg, string[] args)
+        /// <inheritdoc />
+        public virtual void OnResultExecuted(ResultExecutedContext context)
         {
-            var completeArgs = new List<string>();
-            completeArgs.Add(firstArg);
-            completeArgs.AddRange(args);
-            var contentTypes = new MediaTypeCollection();
-            foreach (var arg in completeArgs)
-            {
-                var contentType = new MediaType(arg);
-                if (contentType.MatchesAllTypes ||
-                    contentType.MatchesAllSubTypes)
-                {
-                    throw new InvalidOperationException(
-                        Resources.FormatMatchAllContentTypeIsNotAllowed(arg));
-                }
-
-                contentTypes.Add(arg);
-            }
-
-            return contentTypes;
         }
 
         /// <inheritdoc />
@@ -130,6 +115,27 @@ namespace Microsoft.AspNetCore.Mvc
             {
                 contentTypes.Add(contentType);
             }
+        }
+
+        private MediaTypeCollection GetContentTypes(string firstArg, string[] args)
+        {
+            var completeArgs = new List<string>();
+            completeArgs.Add(firstArg);
+            completeArgs.AddRange(args);
+            var contentTypes = new MediaTypeCollection();
+            foreach (var arg in completeArgs)
+            {
+                var contentType = new MediaType(arg);
+                if (contentType.HasWildcard)
+                {
+                    throw new InvalidOperationException(
+                        Resources.FormatMatchAllContentTypeIsNotAllowed(arg));
+                }
+
+                contentTypes.Add(arg);
+            }
+
+            return contentTypes;
         }
     }
 }

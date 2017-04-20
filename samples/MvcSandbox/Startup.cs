@@ -16,10 +16,10 @@ namespace MvcSandbox
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddMvc();
+            services.AddMvc().AddCookieTempDataProvider();
 
             services.Insert(0, ServiceDescriptor.Singleton(
-                typeof(IConfigureOptions<AntiforgeryOptions>), 
+                typeof(IConfigureOptions<AntiforgeryOptions>),
                 new ConfigureOptions<AntiforgeryOptions>(options => options.CookieName = "<choose a name>")));
         }
 
@@ -28,7 +28,9 @@ namespace MvcSandbox
         {
             app.UseDeveloperExceptionPage();
             app.UseStaticFiles();
-            loggerFactory.AddConsole();
+            loggerFactory
+                .AddConsole()
+                .AddDebug();
             app.UseMvc(routes =>
             {
                 routes.MapRoute(

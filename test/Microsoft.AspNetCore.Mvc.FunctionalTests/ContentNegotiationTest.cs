@@ -5,10 +5,13 @@ using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Runtime.Serialization;
 using System.Text;
 using System.Threading.Tasks;
+using BasicWebSite.Models;
 using Microsoft.AspNetCore.Mvc.Formatters.Xml;
 using Microsoft.AspNetCore.Testing.xunit;
+using Newtonsoft.Json;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Mvc.FunctionalTests
@@ -345,33 +348,31 @@ END:VCARD
         }
 
         [Theory]
-        [InlineData(true)]
-        [InlineData(false)]
-        public async Task ObjectResult_WithStringReturnType_DefaultToTextPlain(bool matchFormatterOnObjectType)
+        [InlineData(null)]
+        [InlineData("text/plain")]
+        [InlineData("text/plain; charset=utf-8")]
+        [InlineData("text/html, application/xhtml+xml, image/jxr, */*")] // typical browser accept header
+        public async Task ObjectResult_WithStringReturnType_DefaultToTextPlain(string acceptMediaType)
         {
             // Arrange
-            var targetUri = "http://localhost/FallbackOnTypeBasedMatch/ReturnString?matchFormatterOnObjectType=true" +
-                matchFormatterOnObjectType;
-            var request = new HttpRequestMessage(HttpMethod.Get, targetUri);
+            var request = new HttpRequestMessage(HttpMethod.Get, "FallbackOnTypeBasedMatch/ReturnString");
+            request.Headers.Accept.ParseAdd(acceptMediaType);
 
             // Act
             var response = await Client.SendAsync(request);
 
             // Assert
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            Assert.Equal("text/plain", response.Content.Headers.ContentType.MediaType);
+            Assert.Equal("text/plain; charset=utf-8", response.Content.Headers.ContentType.ToString());
             var actualBody = await response.Content.ReadAsStringAsync();
             Assert.Equal("Hello World!", actualBody);
         }
 
-        [Theory]
-        [InlineData(true)]
-        [InlineData(false)]
-        public async Task ObjectResult_WithStringReturnType_SetsMediaTypeToAccept(bool matchFormatterOnObjectType)
+        [Fact]
+        public async Task ObjectResult_WithStringReturnType_AndNonTextPlainMediaType_DoesNotReturnTextPlain()
         {
             // Arrange
-            var targetUri = "http://localhost/FallbackOnTypeBasedMatch/ReturnString?matchFormatterOnObjectType=" +
-                matchFormatterOnObjectType;
+            var targetUri = "http://localhost/FallbackOnTypeBasedMatch/ReturnString";
             var request = new HttpRequestMessage(HttpMethod.Get, targetUri);
             request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
@@ -380,9 +381,9 @@ END:VCARD
 
             // Assert
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            Assert.Equal("application/json", response.Content.Headers.ContentType.MediaType);
+            Assert.Equal("application/json; charset=utf-8", response.Content.Headers.ContentType.ToString());
             var actualBody = await response.Content.ReadAsStringAsync();
-            Assert.Equal("Hello World!", actualBody);
+            Assert.Equal("\"Hello World!\"", actualBody);
         }
 
         [Fact]
@@ -469,6 +470,43 @@ END:VCARD
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             var body = await response.Content.ReadAsStringAsync();
             Assert.Equal(body, "MethodWithFormatFilter");
+        }
+
+        [Fact]
+        public async Task ProducesAttribute_CustomMediaTypeWithJsonSuffix_RunsConnegAndSelectsJsonFormatter()
+        {
+            // Arrange
+            var expectedMediaType = MediaTypeHeaderValue.Parse("application/vnd.example.contact+json; v=2; charset=utf-8");
+            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/ProducesWithMediaTypeSuffixesController/ContactInfo");
+            request.Headers.Add("Accept", "application/vnd.example.contact+json; v=2");
+
+            // Act
+            var response = await Client.SendAsync(request);
+
+            // Assert
+            Assert.Equal(expectedMediaType, response.Content.Headers.ContentType);
+            var body = await response.Content.ReadAsStringAsync();
+            var contact = JsonConvert.DeserializeObject<Contact>(body);
+            Assert.Equal("Jason Ecsemelle", contact.Name);
+        }
+
+        [Fact]
+        public async Task ProducesAttribute_CustomMediaTypeWithXmlSuffix_RunsConnegAndSelectsXmlFormatter()
+        {
+            // Arrange
+            var expectedMediaType = MediaTypeHeaderValue.Parse("application/vnd.example.contact+xml; v=2; charset=utf-8");
+            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/ProducesWithMediaTypeSuffixesController/ContactInfo");
+            request.Headers.Add("Accept", "application/vnd.example.contact+xml; v=2");
+
+            // Act
+            var response = await Client.SendAsync(request);
+
+            // Assert
+            Assert.Equal(expectedMediaType, response.Content.Headers.ContentType);
+            var bodyStream = await response.Content.ReadAsStreamAsync();
+            var xmlDeserializer = new DataContractSerializer(typeof(Contact));
+            var contact = xmlDeserializer.ReadObject(bodyStream) as Contact;
+            Assert.Equal("Jason Ecsemelle", contact.Name);
         }
     }
 }

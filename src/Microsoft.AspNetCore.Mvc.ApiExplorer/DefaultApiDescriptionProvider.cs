@@ -66,6 +66,11 @@ namespace Microsoft.AspNetCore.Mvc.ApiExplorer
 
             foreach (var action in context.Actions.OfType<ControllerActionDescriptor>())
             {
+                if (action.AttributeRouteInfo != null && action.AttributeRouteInfo.SuppressPathMatching)
+                {
+                    continue;
+                }
+
                 var extensionData = action.GetProperty<ApiDescriptionActionData>();
                 if (extensionData != null)
                 {
@@ -623,7 +628,7 @@ namespace Microsoft.AspNetCore.Mvc.ApiExplorer
                 //
                 if (modelMetadata.IsEnumerableType ||
                     !modelMetadata.IsComplexType ||
-                    !modelMetadata.Properties.Any())
+                    modelMetadata.Properties.Count == 0)
                 {
                     Context.Results.Add(CreateResult(bindingContext, source ?? ambientSource, containerName));
                     return;
@@ -656,10 +661,10 @@ namespace Microsoft.AspNetCore.Mvc.ApiExplorer
                     newContainerName = GetName(containerName, bindingContext);
                 }
 
-                foreach (var propertyMetadata in modelMetadata.Properties)
+                for (var i = 0; i < modelMetadata.Properties.Count; i++)
                 {
+                    var propertyMetadata = modelMetadata.Properties[i];
                     var key = new PropertyKey(propertyMetadata, source);
-
                     var propertyContext = ApiParameterDescriptionContext.GetContext(
                         propertyMetadata,
                         bindingInfo: null,
@@ -688,6 +693,7 @@ namespace Microsoft.AspNetCore.Mvc.ApiExplorer
                     Name = GetName(containerName, bindingContext),
                     Source = source,
                     Type = bindingContext.ModelMetadata.ModelType,
+                    ParameterDescriptor = Parameter,
                 };
             }
 

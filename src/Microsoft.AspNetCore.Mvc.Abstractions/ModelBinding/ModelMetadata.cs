@@ -8,6 +8,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
+using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
 using Microsoft.Extensions.Internal;
 
 namespace Microsoft.AspNetCore.Mvc.ModelBinding
@@ -16,7 +17,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
     /// A metadata representation of a model type, property or parameter.
     /// </summary>
     [DebuggerDisplay("{DebuggerToString(),nq}")]
-    public abstract class ModelMetadata : IEquatable<ModelMetadata>
+    public abstract class ModelMetadata : IEquatable<ModelMetadata>, IModelMetadataProvider
     {
         /// <summary>
         /// The default value of <see cref="ModelMetadata.Order"/>.
@@ -41,6 +42,17 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
         /// </summary>
         public Type ContainerType { get { return Identity.ContainerType; } }
 
+        /// <summary>
+        /// Gets the metadata of the container type that the current instance is part of.
+        /// </summary>
+        public virtual ModelMetadata ContainerMetadata
+        {
+            get
+            {
+                throw new NotImplementedException();
+            }
+        }
+        
         /// <summary>
         /// Gets a value indicating the kind of metadata element represented by the current instance.
         /// </summary>
@@ -296,6 +308,13 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
         public abstract string TemplateHint { get; }
 
         /// <summary>
+        /// Gets an <see cref="IPropertyValidationFilter"/> implementation that indicates whether this model should be
+        /// validated. If <c>null</c>, properties with this <see cref="ModelMetadata"/> are validated.
+        /// </summary>
+        /// <value>Defaults to <c>null</c>.</value>
+        public virtual IPropertyValidationFilter PropertyValidationFilter => null;
+
+        /// <summary>
         /// Gets a value that indicates whether properties or elements of the model should be validated.
         /// </summary>
         public abstract bool ValidateChildren { get; }
@@ -465,6 +484,18 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
             {
                 return $"ModelMetadata (Property: '{ContainerType.Name}.{PropertyName}' Type: '{ModelType.Name}')";
             }
+        }
+
+        /// <inheritdoc />
+        public virtual ModelMetadata GetMetadataForType(Type modelType)
+        {
+            throw new NotImplementedException();
+        }
+
+        /// <inheritdoc />
+        public virtual IEnumerable<ModelMetadata> GetMetadataForProperties(Type modelType)
+        {
+            throw new NotImplementedException();
         }
     }
 }

@@ -6,6 +6,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
+using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Mvc.ModelBinding
@@ -301,6 +302,36 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
             Assert.Equal("String", result);
         }
 
+        [Fact]
+        public void GetContainerMetadata_ThrowsNotImplementedException_ByDefault()
+        {
+            // Arrange
+            var metadata = new TestModelMetadata(typeof(DerivedList));
+
+            // Act & Assert
+            Assert.Throws<NotImplementedException>(() => metadata.ContainerMetadata);
+        }
+
+        [Fact]
+        public void GetMetadataForType_ByDefaultThrows_NotImplementedException()
+        {
+            // Arrange
+            var metadata = new TestModelMetadata(typeof(string));
+
+            // Act & Assert
+            var result = Assert.Throws<NotImplementedException>(() => metadata.GetMetadataForType(typeof(string)));
+        }
+
+        [Fact]
+        public void GetMetadataForProperties_ByDefaultThrows_NotImplementedException()
+        {
+            // Arrange
+            var metadata = new TestModelMetadata(typeof(string));
+
+            // Act & Assert
+            var result = Assert.Throws<NotImplementedException>(() => metadata.GetMetadataForProperties(typeof(string)));
+        }
+
         private class TestModelMetadata : ModelMetadata
         {
             private string _displayName;
@@ -569,6 +600,14 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
             }
 
             public override string TemplateHint
+            {
+                get
+                {
+                    throw new NotImplementedException();
+                }
+            }
+
+            public override IPropertyValidationFilter PropertyValidationFilter
             {
                 get
                 {

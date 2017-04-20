@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using Microsoft.AspNetCore.Mvc.Abstractions;
@@ -14,7 +13,6 @@ using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Core;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Routing;
-using Microsoft.AspNetCore.Routing.Tree;
 
 namespace Microsoft.AspNetCore.Mvc.Internal
 {
@@ -367,9 +365,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             AttributeRouteModel action,
             AttributeRouteModel controller)
         {
-            var combinedRoute = AttributeRouteModel.CombineAttributeRouteModel(
-                                controller,
-                                action);
+            var combinedRoute = AttributeRouteModel.CombineAttributeRouteModel(controller, action);
 
             if (combinedRoute == null)
             {
@@ -377,11 +373,13 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             }
             else
             {
-                return new AttributeRouteInfo()
+                return new AttributeRouteInfo
                 {
                     Template = combinedRoute.Template,
                     Order = combinedRoute.Order ?? DefaultAttributeRouteOrder,
                     Name = combinedRoute.Name,
+                    SuppressLinkGeneration = combinedRoute.SuppressLinkGeneration,
+                    SuppressPathMatching = combinedRoute.SuppressPathMatching,
                 };
             }
         }

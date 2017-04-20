@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
@@ -27,7 +26,8 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             "Microsoft.AspNetCore.Mvc.Formatters.Xml",
             "Microsoft.AspNetCore.Mvc.Localization",
             "Microsoft.AspNetCore.Mvc.Razor",
-            "Microsoft.AspNetCore.Mvc.Razor.Host",
+            "Microsoft.AspNetCore.Mvc.Razor.Extensions",
+            "Microsoft.AspNetCore.Mvc.RazorPages",
             "Microsoft.AspNetCore.Mvc.TagHelpers",
             "Microsoft.AspNetCore.Mvc.ViewFeatures"
         };
@@ -35,7 +35,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
         public static IEnumerable<ApplicationPart> DiscoverAssemblyParts(string entryPointAssemblyName)
         {
             var entryAssembly = Assembly.Load(new AssemblyName(entryPointAssemblyName));
-            var context = DependencyContext.Load(Assembly.Load(new AssemblyName(entryPointAssemblyName)));
+            var context = DependencyContext.Load(entryAssembly);
 
             return GetCandidateAssemblies(entryAssembly, context).Select(p => new AssemblyPart(p));
         }
@@ -70,12 +70,12 @@ namespace Microsoft.AspNetCore.Mvc.Internal
 
         private class CandidateResolver
         {
-            private readonly IDictionary<string, Dependency> _dependencies;
+            private readonly IDictionary<string, Dependency> _runtimeDependencies;
 
-            public CandidateResolver(IReadOnlyList<RuntimeLibrary> dependencies, ISet<string> referenceAssemblies)
+            public CandidateResolver(IReadOnlyList<RuntimeLibrary> runtimeDependencies, ISet<string> referenceAssemblies)
             {
                 var dependenciesWithNoDuplicates = new Dictionary<string, Dependency>(StringComparer.OrdinalIgnoreCase);
-                foreach (var dependency in dependencies)
+                foreach (var dependency in runtimeDependencies)
                 {
                     if (dependenciesWithNoDuplicates.ContainsKey(dependency.Name))
                     {
@@ -84,7 +84,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                     dependenciesWithNoDuplicates.Add(dependency.Name, CreateDependency(dependency, referenceAssemblies));
                 }
 
-                _dependencies = dependenciesWithNoDuplicates;
+                _runtimeDependencies = dependenciesWithNoDuplicates;
             }
 
             private Dependency CreateDependency(RuntimeLibrary library, ISet<string> referenceAssemblies)
@@ -100,23 +100,28 @@ namespace Microsoft.AspNetCore.Mvc.Internal
 
             private DependencyClassification ComputeClassification(string dependency)
             {
-                Debug.Assert(_dependencies.ContainsKey(dependency));
+                if (!_runtimeDependencies.ContainsKey(dependency))
+                {
+                    // Library does not have runtime dependency. Since we can't infer
+                    // anything about it's references, we'll assume it does not have a reference to Mvc.
+                    return DependencyClassification.DoesNotReferenceMvc;
+                }
 
-                var candidateEntry = _dependencies[dependency];
+                var candidateEntry = _runtimeDependencies[dependency];
                 if (candidateEntry.Classification != DependencyClassification.Unknown)
                 {
                     return candidateEntry.Classification;
                 }
                 else
                 {
-                    var classification = DependencyClassification.NotCandidate;
+                    var classification = DependencyClassification.DoesNotReferenceMvc;
                     foreach (var candidateDependency in candidateEntry.Library.Dependencies)
                     {
                         var dependencyClassification = ComputeClassification(candidateDependency.Name);
-                        if (dependencyClassification == DependencyClassification.Candidate ||
+                        if (dependencyClassification == DependencyClassification.ReferencesMvc ||
                             dependencyClassification == DependencyClassification.MvcReference)
                         {
-                            classification = DependencyClassification.Candidate;
+                            classification = DependencyClassification.ReferencesMvc;
                             break;
                         }
                     }
@@ -129,9 +134,9 @@ namespace Microsoft.AspNetCore.Mvc.Internal
 
             public IEnumerable<RuntimeLibrary> GetCandidates()
             {
-                foreach (var dependency in _dependencies)
+                foreach (var dependency in _runtimeDependencies)
                 {
-                    if (ComputeClassification(dependency.Key) == DependencyClassification.Candidate)
+                    if (ComputeClassification(dependency.Key) == DependencyClassification.ReferencesMvc)
                     {
                         yield return dependency.Value.Library;
                     }
@@ -159,9 +164,23 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             private enum DependencyClassification
             {
                 Unknown = 0,
-                Candidate = 1,
-                NotCandidate = 2,
-                MvcReference = 3
+
+                /// <summary>
+                /// References (directly or transitively) one of the Mvc packages listed in
+                /// <see cref="ReferenceAssemblies"/>.
+                /// </summary>
+                ReferencesMvc = 1,
+
+                /// <summary>
+                /// Does not reference (directly or transitively) one of the Mvc packages listed by
+                /// <see cref="ReferenceAssemblies"/>.
+                /// </summary>
+                DoesNotReferenceMvc = 2,
+
+                /// <summary>
+                /// One of the references listed in <see cref="ReferenceAssemblies"/>.
+                /// </summary>
+                MvcReference = 3,
             }
         }
     }

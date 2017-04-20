@@ -4,9 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Encodings.Web;
-#if NETCOREAPP1_1
 using System.Reflection;
-#endif
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Abstractions;
@@ -17,7 +15,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Testing;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.ObjectPool;
 using Microsoft.Extensions.WebEncoders.Testing;

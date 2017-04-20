@@ -6,10 +6,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Text.Encodings.Web;
-using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.Mvc.Razor.Internal;
 using Microsoft.AspNetCore.Mvc.ViewEngines;
+using Microsoft.AspNetCore.Razor.Language;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -29,16 +30,22 @@ namespace Microsoft.AspNetCore.Mvc.Razor
     public class RazorViewEngine : IRazorViewEngine
     {
         public static readonly string ViewExtension = ".cshtml";
+        private const string ViewStartFileName = "_ViewStart.cshtml";
 
-        private const string ControllerKey = "controller";
         private const string AreaKey = "area";
+        private const string ControllerKey = "controller";
+        private const string PageKey = "page";
+
+        private const string ParentDirectoryToken = "..";
         private static readonly TimeSpan _cacheExpirationDuration = TimeSpan.FromMinutes(20);
+        private static readonly char[] _pathSeparators = new[] { '/', '\\' };
 
         private readonly IRazorPageFactoryProvider _pageFactory;
         private readonly IRazorPageActivator _pageActivator;
         private readonly HtmlEncoder _htmlEncoder;
         private readonly ILogger _logger;
         private readonly RazorViewEngineOptions _options;
+        private readonly RazorProject _razorProject;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="RazorViewEngine" />.
@@ -48,6 +55,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
             IRazorPageActivator pageActivator,
             HtmlEncoder htmlEncoder,
             IOptions<RazorViewEngineOptions> optionsAccessor,
+            RazorProject razorProject,
             ILoggerFactory loggerFactory)
         {
             _options = optionsAccessor.Value;
@@ -70,10 +78,8 @@ namespace Microsoft.AspNetCore.Mvc.Razor
             _pageActivator = pageActivator;
             _htmlEncoder = htmlEncoder;
             _logger = loggerFactory.CreateLogger<RazorViewEngine>();
-            ViewLookupCache = new MemoryCache(new MemoryCacheOptions
-            {
-                CompactOnMemoryPressure = false
-            });
+            _razorProject = razorProject;
+            ViewLookupCache = new MemoryCache(new MemoryCacheOptions());
         }
 
         /// <summary>
@@ -267,11 +273,13 @@ namespace Microsoft.AspNetCore.Mvc.Razor
         {
             var controllerName = GetNormalizedRouteValue(actionContext, ControllerKey);
             var areaName = GetNormalizedRouteValue(actionContext, AreaKey);
+            var razorPageName = GetNormalizedRouteValue(actionContext, PageKey);
             var expanderContext = new ViewLocationExpanderContext(
                 actionContext,
                 pageName,
                 controllerName,
                 areaName,
+                razorPageName,
                 isMainPage);
             Dictionary<string, string> expanderValues = null;
 
@@ -291,6 +299,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
                 expanderContext.ViewName,
                 expanderContext.ControllerName,
                 expanderContext.AreaName,
+                expanderContext.PageName,
                 expanderContext.IsMainPage,
                 expanderValues);
 
@@ -329,29 +338,97 @@ namespace Microsoft.AspNetCore.Mvc.Razor
                 return pagePath;
             }
 
-            // Given a relative path i.e. not yet application-relative (starting with "~/" or "/"), interpret
-            // path relative to currently-executing view, if any.
+            string absolutePath;
             if (string.IsNullOrEmpty(executingFilePath))
             {
+                // Given a relative path i.e. not yet application-relative (starting with "~/" or "/"), interpret
+                // path relative to currently-executing view, if any.
                 // Not yet executing a view. Start in app root.
-                return "/" + pagePath;
+                absolutePath = "/" + pagePath;
+            }
+            else
+            {
+                // Get directory name (including final slash) but do not use Path.GetDirectoryName() to preserve path
+                // normalization.
+                var index = executingFilePath.LastIndexOf('/');
+                Debug.Assert(index >= 0);
+                absolutePath = executingFilePath.Substring(0, index + 1) + pagePath;
+                if (!RequiresPathResolution(pagePath))
+                {
+                    return absolutePath;
+                }
             }
 
-            // Get directory name (including final slash) but do not use Path.GetDirectoryName() to preserve path
-            // normalization.
-            var index = executingFilePath.LastIndexOf('/');
-            Debug.Assert(index >= 0);
-            return executingFilePath.Substring(0, index + 1) + pagePath;
+            if (!RequiresPathResolution(pagePath))
+            {
+                return absolutePath;
+            }
+
+            var pathSegments = new List<StringSegment>();
+            var tokenizer = new StringTokenizer(absolutePath, _pathSeparators);
+            foreach (var segment in tokenizer)
+            {
+                if (segment.Length == 0)
+                {
+                    // Ignore multiple directory separators
+                    continue;
+                }
+                if (segment.Equals(ParentDirectoryToken, StringComparison.Ordinal))
+                {
+                    if (pathSegments.Count == 0)
+                    {
+                        // Don't resolve the path if we ever escape the file system root. We can't reason about it in a
+                        // consistent way.
+                        return absolutePath;
+                    }
+                    pathSegments.RemoveAt(pathSegments.Count - 1);
+                }
+                else
+                {
+                    pathSegments.Add(segment);
+                }
+            }
+
+            var builder = new StringBuilder();
+            for (var i = 0; i < pathSegments.Count; i++)
+            {
+                var segment = pathSegments[i];
+                builder.Append('/');
+                builder.Append(segment.Buffer, segment.Offset, segment.Length);
+            }
+
+            return builder.ToString();
+        }
+
+        // internal for tests
+        internal IEnumerable<string> GetViewLocationFormats(ViewLocationExpanderContext context)
+        {
+            if (!string.IsNullOrEmpty(context.AreaName) &&
+                !string.IsNullOrEmpty(context.ControllerName))
+            {
+                return _options.AreaViewLocationFormats;
+            }
+            else if (!string.IsNullOrEmpty(context.ControllerName))
+            {
+                return _options.ViewLocationFormats;
+            }
+            else if (!string.IsNullOrEmpty(context.PageName))
+            {
+                return _options.PageViewLocationFormats;
+            }
+            else
+            {
+                // If we don't match one of these conditions, we'll just treat it like regular controller/action
+                // and use those search paths. This is what we did in 1.0.0 without giving much thought to it.
+                return _options.ViewLocationFormats;
+            }
         }
 
         private ViewLocationCacheResult OnCacheMiss(
             ViewLocationExpanderContext expanderContext,
             ViewLocationCacheKey cacheKey)
         {
-            // Only use the area view location formats if we have an area token.
-            IEnumerable<string> viewLocations = !string.IsNullOrEmpty(expanderContext.AreaName) ?
-                _options.AreaViewLocationFormats :
-                _options.ViewLocationFormats;
+            var viewLocations = GetViewLocationFormats(expanderContext);
 
             for (var i = 0; i < _options.ViewLocationExpanders.Count; i++)
             {
@@ -415,7 +492,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
                 // Only need to lookup _ViewStarts for the main page.
                 var viewStartPages = isMainPage ?
                     GetViewStartPages(relativePath, expirationTokens) :
-                    EmptyArray<ViewLocationCacheItem>.Instance;
+                    Array.Empty<ViewLocationCacheItem>();
                 if (factoryResult.IsPrecompiled)
                 {
                     _logger.PrecompiledViewFound(relativePath);
@@ -433,10 +510,12 @@ namespace Microsoft.AspNetCore.Mvc.Razor
             string path,
             HashSet<IChangeToken> expirationTokens)
         {
+            var applicationRelativePath = MakePathApplicationRelative(path);
             var viewStartPages = new List<ViewLocationCacheItem>();
-            foreach (var viewStartPath in ViewHierarchyUtility.GetViewStartLocations(path))
+
+            foreach (var viewStartProjectItem in _razorProject.FindHierarchicalItems(applicationRelativePath, ViewStartFileName))
             {
-                var result = _pageFactory.CreateFactory(viewStartPath);
+                var result = _pageFactory.CreateFactory(viewStartProjectItem.Path);
                 if (result.ExpirationTokens != null)
                 {
                     for (var i = 0; i < result.ExpirationTokens.Count; i++)
@@ -450,7 +529,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
                     // Populate the viewStartPages list so that _ViewStarts appear in the order the need to be
                     // executed (closest last, furthest first). This is the reverse order in which
                     // ViewHierarchyUtility.GetViewStartLocations returns _ViewStarts.
-                    viewStartPages.Insert(0, new ViewLocationCacheItem(result.RazorPageFactory, viewStartPath));
+                    viewStartPages.Insert(0, new ViewLocationCacheItem(result.RazorPageFactory, viewStartProjectItem.Path));
                 }
             }
 
@@ -483,12 +562,33 @@ namespace Microsoft.AspNetCore.Mvc.Razor
             return name[0] == '~' || name[0] == '/';
         }
 
+        private string MakePathApplicationRelative(string path)
+        {
+            Debug.Assert(!string.IsNullOrEmpty(path));
+            if (path[0] == '~')
+            {
+                path = path.Substring(1);
+            }
+
+            if (path[0] != '/')
+            {
+                path = '/' + path;
+            }
+
+            return path;
+        }
+
         private static bool IsRelativePath(string name)
         {
             Debug.Assert(!string.IsNullOrEmpty(name));
 
             // Though ./ViewName looks like a relative path, framework searches for that view using view locations.
             return name.EndsWith(ViewExtension, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool RequiresPathResolution(string path)
+        {
+            return path.IndexOf(ParentDirectoryToken, StringComparison.Ordinal) != -1;
         }
     }
 }

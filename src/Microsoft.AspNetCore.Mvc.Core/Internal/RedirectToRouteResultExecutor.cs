@@ -2,9 +2,11 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Core;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.Extensions.Logging;
+using Microsoft.Net.Http.Headers;
 
 namespace Microsoft.AspNetCore.Mvc.Internal
 {
@@ -33,14 +35,29 @@ namespace Microsoft.AspNetCore.Mvc.Internal
         {
             var urlHelper = result.UrlHelper ?? _urlHelperFactory.GetUrlHelper(context);
 
-            var destinationUrl = urlHelper.RouteUrl(result.RouteName, result.RouteValues);
+            var destinationUrl = urlHelper.RouteUrl(
+                result.RouteName,
+                result.RouteValues,
+                protocol: null,
+                host: null,
+                fragment: result.Fragment);
             if (string.IsNullOrEmpty(destinationUrl))
             {
                 throw new InvalidOperationException(Resources.NoRoutesMatched);
             }
 
             _logger.RedirectToRouteResultExecuting(destinationUrl, result.RouteName);
-            context.HttpContext.Response.Redirect(destinationUrl, result.Permanent);
+
+            if (result.PreserveMethod)
+            {
+                context.HttpContext.Response.StatusCode = result.Permanent ?
+                    StatusCodes.Status308PermanentRedirect : StatusCodes.Status307TemporaryRedirect;
+                context.HttpContext.Response.Headers[HeaderNames.Location] = destinationUrl;
+            }
+            else
+            {
+                context.HttpContext.Response.Redirect(destinationUrl, result.Permanent);
+            }
         }
     }
 }

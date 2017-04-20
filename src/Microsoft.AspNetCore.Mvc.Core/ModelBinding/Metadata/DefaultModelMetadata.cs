@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
 
 namespace Microsoft.AspNetCore.Mvc.ModelBinding.Metadata
 {
@@ -92,6 +93,15 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Metadata
             get
             {
                 return _details.ModelAttributes;
+            }
+        }
+
+        /// <inheritdoc />
+        public override ModelMetadata ContainerMetadata
+        {
+            get
+            {
+                return _details.ContainerMetadata;
             }
         }
 
@@ -532,6 +542,15 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Metadata
         }
 
         /// <inheritdoc />
+        public override IPropertyValidationFilter PropertyValidationFilter
+        {
+            get
+            {
+                return ValidationMetadata.PropertyValidationFilter;
+            }
+        }
+
+        /// <inheritdoc />
         public override bool ValidateChildren
         {
             get
@@ -586,6 +605,18 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Metadata
             {
                 return _details.PropertySetter;
             }
+        }
+
+        /// <inheritdoc />
+        public override ModelMetadata GetMetadataForType(Type modelType)
+        {
+            return _provider.GetMetadataForType(modelType);
+        }
+
+        /// <inheritdoc />
+        public override IEnumerable<ModelMetadata> GetMetadataForProperties(Type modelType)
+        {
+            return _provider.GetMetadataForProperties(modelType);
         }
     }
 }

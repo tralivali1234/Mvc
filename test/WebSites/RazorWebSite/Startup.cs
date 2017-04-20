@@ -4,11 +4,14 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.Mvc.Razor;
+using Microsoft.AspNetCore.Razor.TagHelpers;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
 
 namespace RazorWebSite
 {
@@ -16,13 +19,22 @@ namespace RazorWebSite
     {
         public void ConfigureServices(IServiceCollection services)
         {
+            var updateableFileProvider = new UpdateableFileProvider();
+            services.AddSingleton(updateableFileProvider);
+            services.AddSingleton<ITagHelperComponent, TestHeadTagHelperComponent>();
+            services.AddSingleton<ITagHelperComponent, TestBodyTagHelperComponent>();
+
             services
                 .AddMvc()
                 .AddRazorOptions(options =>
                 {
+                    options.FileProviders.Add(new EmbeddedFileProvider(
+                        typeof(Startup).GetTypeInfo().Assembly,
+                        $"{nameof(RazorWebSite)}.EmbeddedViews"));
+                    options.FileProviders.Add(updateableFileProvider);
                     options.ViewLocationExpanders.Add(new NonMainPageViewLocationExpander());
-#if NET451
-                    options.ParseOptions = options.ParseOptions.WithPreprocessorSymbols("DNX451", "NET451_CUSTOM_DEFINE");
+#if NET46
+                    options.ParseOptions = options.ParseOptions.WithPreprocessorSymbols("NET46", "NET46_CUSTOM_DEFINE");
 #endif
                 })
                 .AddViewOptions(options =>

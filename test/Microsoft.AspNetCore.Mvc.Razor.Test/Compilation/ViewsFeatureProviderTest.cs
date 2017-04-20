@@ -90,6 +90,28 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Compilation
             Assert.Empty(feature.Views);
         }
 
+#if NET46
+        [Fact]
+        public void PopulateFeature_DoesNotFail_IfAssemblyHasEmptyLocation()
+        {
+            // Arrange
+            var assembly = new AssemblyWithEmptyLocation();
+            var applicationPartManager = new ApplicationPartManager();
+            applicationPartManager.ApplicationParts.Add(new AssemblyPart(assembly));
+            applicationPartManager.FeatureProviders.Add(new ViewsFeatureProvider());
+            var feature = new ViewsFeature();
+
+            // Act
+            applicationPartManager.PopulateFeature(feature);
+
+            // Assert
+            Assert.Empty(feature.Views);
+        }
+#elif NETCOREAPP2_0
+#else
+#error target frameworks needs to be updated.
+#endif
+
         private class TestableViewsFeatureProvider : ViewsFeatureProvider
         {
             private readonly Dictionary<AssemblyPart, Type> _containerLookup;
@@ -99,8 +121,11 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Compilation
                 _containerLookup = containerLookup;
             }
 
-            protected override Type GetViewInfoContainerType(AssemblyPart assemblyPart) =>
-                _containerLookup[assemblyPart];
+            protected override ViewInfoContainer GetManifest(AssemblyPart assemblyPart)
+            {
+                var type = _containerLookup[assemblyPart];
+                return (ViewInfoContainer)Activator.CreateInstance(type);
+            }
         }
 
         private class ViewInfoContainer1 : ViewInfoContainer
@@ -125,5 +150,30 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Compilation
             {
             }
         }
+
+#if NET46
+        private class AssemblyWithEmptyLocation : Assembly
+        {
+            public override string Location => string.Empty;
+
+            public override string FullName => typeof(ViewsFeatureProviderTest).GetTypeInfo().Assembly.FullName;
+
+            public override IEnumerable<TypeInfo> DefinedTypes
+            {
+                get
+                {
+                    throw new NotImplementedException();
+                }
+            }
+
+            public override IEnumerable<Module> Modules
+            {
+                get
+                {
+                    throw new NotImplementedException();
+                }
+            }
+        }
+#endif
     }
 }

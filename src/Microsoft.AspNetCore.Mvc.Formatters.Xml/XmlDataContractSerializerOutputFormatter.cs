@@ -48,6 +48,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
 
             SupportedMediaTypes.Add(MediaTypeHeaderValues.ApplicationXml);
             SupportedMediaTypes.Add(MediaTypeHeaderValues.TextXml);
+            SupportedMediaTypes.Add(MediaTypeHeaderValues.ApplicationAnyXmlSyntax);
 
             WriterSettings = writerSettings;
 
@@ -131,9 +132,12 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
 
             try
             {
-#if NET451
+#if NET46
                 // Verify that type is a valid data contract by forcing the serializer to try to create a data contract
                 FormattingUtilities.XsdDataContractExporter.GetRootElementName(type);
+#elif NETSTANDARD1_6
+#else
+#error target frameworks need to be updated.
 #endif
                 // If the serializer does not support this type it will throw an exception.
                 return new DataContractSerializer(type, _serializerSettings);

@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.AspNetCore.Mvc.ModelBinding.Binders;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Mvc.IntegrationTests
@@ -33,7 +34,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
         public async Task ActionParameter_NonSettableCollectionModel_EmptyPrefix_GetsBound()
         {
             // Arrange
-            var argumentBinder = ModelBindingTestHelper.GetArgumentBinder();
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder();
             var parameter = new ParameterDescriptor()
             {
                 Name = "prefix",
@@ -49,7 +50,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             var model = new Person3();
 
             // Act
-            var modelBindingResult = await argumentBinder.BindModelAsync(parameter, testContext);
+            var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);
 
             // Assert
             Assert.True(modelBindingResult.IsModelSet);
@@ -80,7 +81,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
         public async Task ActionParameter_ReadOnlyCollectionModel_EmptyPrefix_DoesNotGetBound()
         {
             // Arrange
-            var argumentBinder = ModelBindingTestHelper.GetArgumentBinder();
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder();
             var parameter = new ParameterDescriptor()
             {
                 Name = "prefix",
@@ -94,7 +95,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             var modelState = testContext.ModelState;
 
             // Act
-            var modelBindingResult = await argumentBinder.BindModelAsync(parameter, testContext);
+            var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);
 
             // Assert
             Assert.True(modelBindingResult.IsModelSet);
@@ -127,7 +128,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
         public async Task ActionParameter_SettableArrayModel_EmptyPrefix_GetsBound()
         {
             // Arrange
-            var argumentBinder = ModelBindingTestHelper.GetArgumentBinder();
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder();
             var parameter = new ParameterDescriptor()
             {
                 Name = "prefix",
@@ -143,7 +144,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             var model = new Person4();
 
             // Act
-            var modelBindingResult = await argumentBinder.BindModelAsync(parameter, testContext);
+            var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);
 
             // Assert
             Assert.True(modelBindingResult.IsModelSet);
@@ -175,7 +176,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
         public async Task ActionParameter_NonSettableArrayModel_EmptyPrefix_DoesNotGetBound()
         {
             // Arrange
-            var argumentBinder = ModelBindingTestHelper.GetArgumentBinder();
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder();
             var parameter = new ParameterDescriptor()
             {
                 Name = "prefix",
@@ -189,7 +190,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
 
             var modelState = testContext.ModelState;
             // Act
-            var modelBindingResult = await argumentBinder.BindModelAsync(parameter, testContext);
+            var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);
 
             // Assert
             Assert.True(modelBindingResult.IsModelSet);
@@ -211,7 +212,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
         public async Task ActionParameter_NonSettableCollectionModel_WithPrefix_GetsBound()
         {
             // Arrange
-            var argumentBinder = ModelBindingTestHelper.GetArgumentBinder();
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder();
             var parameter = new ParameterDescriptor()
             {
                 Name = "Address",
@@ -230,7 +231,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             var modelState = testContext.ModelState;
 
             // Act
-            var modelBindingResult = await argumentBinder.BindModelAsync(parameter, testContext);
+            var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);
 
             // Assert
             Assert.True(modelBindingResult.IsModelSet);
@@ -256,7 +257,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
         public async Task ActionParameter_ReadOnlyCollectionModel_WithPrefix_DoesNotGetBound()
         {
             // Arrange
-            var argumentBinder = ModelBindingTestHelper.GetArgumentBinder();
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder();
             var parameter = new ParameterDescriptor()
             {
                 Name = "Address",
@@ -274,7 +275,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             var modelState = testContext.ModelState;
 
             // Act
-            var modelBindingResult = await argumentBinder.BindModelAsync(parameter, testContext);
+            var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);
 
             // Assert
             Assert.True(modelBindingResult.IsModelSet);
@@ -302,7 +303,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
         public async Task ActionParameter_SettableArrayModel_WithPrefix_GetsBound()
         {
             // Arrange
-            var argumentBinder = ModelBindingTestHelper.GetArgumentBinder();
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder();
             var parameter = new ParameterDescriptor()
             {
                 Name = "Address",
@@ -321,7 +322,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             var modelState = testContext.ModelState;
 
             // Act
-            var modelBindingResult = await argumentBinder.BindModelAsync(parameter, testContext);
+            var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);
 
             // Assert
             Assert.True(modelBindingResult.IsModelSet);
@@ -347,7 +348,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
         public async Task ActionParameter_NonSettableArrayModel_WithPrefix_DoesNotGetBound()
         {
             // Arrange
-            var argumentBinder = ModelBindingTestHelper.GetArgumentBinder();
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder();
             var parameter = new ParameterDescriptor()
             {
                 Name = "Address",
@@ -366,7 +367,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             var modelState = testContext.ModelState;
 
             // Act
-            var modelBindingResult = await argumentBinder.BindModelAsync(parameter, testContext);
+            var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);
 
             // Assert
             Assert.True(modelBindingResult.IsModelSet);
@@ -384,11 +385,11 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
         }
 
         [Fact]
-        public async Task ActionParameter_ModelPropertyTypeWithNoDefaultConstructor_NoOps()
+        public async Task ActionParameter_ModelPropertyTypeWithNoParameterlessConstructor_ThrowsException()
         {
             // Arrange
             var parameterType = typeof(Class1);
-            var argumentBinder = ModelBindingTestHelper.GetArgumentBinder();
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder();
             var parameter = new ParameterDescriptor()
             {
                 Name = "p",
@@ -400,61 +401,92 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             });
             var modelState = testContext.ModelState;
 
-            // Act
-            var result = await argumentBinder.BindModelAsync(parameter, testContext);
-
-            // Assert
-            Assert.True(result.IsModelSet);
-            Assert.True(modelState.IsValid);
-            var model = Assert.IsType<Class1>(result.Model);
-            Assert.Null(model.Property1);
-            var keyValuePair = Assert.Single(modelState);
-            Assert.Equal("Name", keyValuePair.Key);
-            Assert.Equal("James", keyValuePair.Value.AttemptedValue);
-            Assert.Equal("James", keyValuePair.Value.RawValue);
+            // Act & Assert
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => parameterBinder.BindModelAsync(parameter, testContext));
+            Assert.Equal(
+                string.Format(
+                    "Could not create an instance of type '{0}'. Model bound complex types must not be abstract or " +
+                    "value types and must have a parameterless constructor. Alternatively, set the '{1}' property to" +
+                    " a non-null value in the '{2}' constructor.",
+                    typeof(ClassWithNoDefaultConstructor).FullName,
+                    nameof(Class1.Property1),
+                    typeof(Class1).FullName),
+                exception.Message);
         }
 
         [Fact]
-        public async Task ActionParameter_BindingToStructModel_Fails()
+        public async Task ActionParameter_BindingToStructModel_ThrowsException()
         {
             // Arrange
             var parameterType = typeof(PointStruct);
-            var argumentBinder = ModelBindingTestHelper.GetArgumentBinder();
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder();
             var parameter = new ParameterDescriptor()
             {
-                ParameterType = parameterType
+                ParameterType = parameterType,
+                Name = "p"
             };
             var testContext = ModelBindingTestHelper.GetTestContext();
 
             // Act & Assert
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => argumentBinder.BindModelAsync(parameter, testContext));
-
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => parameterBinder.BindModelAsync(parameter, testContext));
             Assert.Equal(
-                string.Format("Could not create a model binder for model object of type '{0}'.", parameterType.FullName),
+                string.Format(
+                    "Could not create an instance of type '{0}'. Model bound complex types must not be abstract or " +
+                    "value types and must have a parameterless constructor.",
+                    typeof(PointStruct).FullName),
                 exception.Message);
         }
 
         [Theory]
         [InlineData(typeof(ClassWithNoDefaultConstructor))]
         [InlineData(typeof(AbstractClassWithNoDefaultConstructor))]
-        public async Task ActionParameter_NoDefaultConstructor_Fails(Type parameterType)
+        public async Task ActionParameter_BindingToTypeWithNoParameterlessConstructor_ThrowsException(Type parameterType)
         {
             // Arrange
-            var argumentBinder = ModelBindingTestHelper.GetArgumentBinder();
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder();
             var parameter = new ParameterDescriptor()
             {
-                ParameterType = parameterType
+                ParameterType = parameterType,
+                Name = "p"
             };
             var testContext = ModelBindingTestHelper.GetTestContext();
 
             // Act & Assert
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => argumentBinder.BindModelAsync(parameter, testContext));
-
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => parameterBinder.BindModelAsync(parameter, testContext));
             Assert.Equal(
-                string.Format("Could not create a model binder for model object of type '{0}'.", parameterType.FullName),
+                string.Format(
+                    "Could not create an instance of type '{0}'. Model bound complex types must not be abstract or " +
+                    "value types and must have a parameterless constructor.",
+                    parameterType.FullName),
                 exception.Message);
+        }
+
+        [Fact]
+        public async Task ActionParameter_CustomModelBinder_CanCreateModels_ForParameterlessConstructorTypes()
+        {
+            // Arrange
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder(binderProvider: new CustomComplexTypeModelBinderProvider());
+            var parameter = new ParameterDescriptor()
+            {
+                Name = "prefix",
+                ParameterType = typeof(ClassWithNoDefaultConstructor)
+            };
+            var testContext = ModelBindingTestHelper.GetTestContext();
+            var modelState = testContext.ModelState;
+
+            // Act
+            var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);
+
+            // Assert
+            Assert.True(modelBindingResult.IsModelSet);
+
+            // Model
+            Assert.NotNull(modelBindingResult.Model);
+            var boundModel = Assert.IsType<ClassWithNoDefaultConstructor>(modelBindingResult.Model);
+            Assert.Equal(100, boundModel.Id);
+
+            // ModelState
+            Assert.True(modelState.IsValid);
         }
 
         private struct PointStruct
@@ -476,8 +508,12 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
 
         private class ClassWithNoDefaultConstructor
         {
-            public ClassWithNoDefaultConstructor(int id) { }
+            public ClassWithNoDefaultConstructor(int id)
+            {
+                Id = id;
+            }
             public string City { get; set; }
+            public int Id { get; }
         }
 
         private abstract class AbstractClassWithNoDefaultConstructor
@@ -557,6 +593,35 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
             {
                 return GetEnumerator();
+            }
+        }
+
+        // By default the ComplexTypeModelBinder fails to construct models for types with no parameterless constructor,
+        // but a developer could change this behavior by overridng CreateModel
+        private class CustomComplexTypeModelBinder : ComplexTypeModelBinder
+        {
+            public CustomComplexTypeModelBinder(IDictionary<ModelMetadata, IModelBinder> propertyBinders)
+                : base(propertyBinders)
+            {
+            }
+
+            protected override object CreateModel(ModelBindingContext bindingContext)
+            {
+                Assert.Equal(typeof(ClassWithNoDefaultConstructor), bindingContext.ModelType);
+                return new ClassWithNoDefaultConstructor(100);
+            }
+        }
+
+        private class CustomComplexTypeModelBinderProvider : IModelBinderProvider
+        {
+            public IModelBinder GetBinder(ModelBinderProviderContext context)
+            {
+                var propertyBinders = new Dictionary<ModelMetadata, IModelBinder>();
+                foreach (var property in context.Metadata.Properties)
+                {
+                    propertyBinders.Add(property, context.CreateBinder(property));
+                }
+                return new CustomComplexTypeModelBinder(propertyBinders);
             }
         }
     }

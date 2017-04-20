@@ -16,12 +16,16 @@ using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Cors.Internal;
 using Microsoft.AspNetCore.Mvc.DataAnnotations.Internal;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Mvc.Formatters.Json;
 using Microsoft.AspNetCore.Mvc.Formatters.Json.Internal;
 using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.Mvc.Razor;
 using Microsoft.AspNetCore.Mvc.Razor.Compilation;
 using Microsoft.AspNetCore.Mvc.Razor.Internal;
 using Microsoft.AspNetCore.Mvc.Razor.TagHelpers;
+using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure;
+using Microsoft.AspNetCore.Mvc.RazorPages.Internal;
 using Microsoft.AspNetCore.Mvc.TagHelpers;
 using Microsoft.AspNetCore.Mvc.ViewComponents;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -209,9 +213,9 @@ namespace Microsoft.AspNetCore.Mvc
             Assert.Collection(manager.FeatureProviders,
                 feature => Assert.IsType<ControllerFeatureProvider>(feature),
                 feature => Assert.IsType<ViewComponentFeatureProvider>(feature),
-                feature => Assert.IsType<TagHelperFeatureProvider>(feature),
                 feature => Assert.IsType<MetadataReferenceFeatureProvider>(feature),
-                feature => Assert.IsType<ViewsFeatureProvider>(feature));
+                feature => Assert.IsType<ViewsFeatureProvider>(feature),
+                feature => Assert.IsType<CompiledPageFeatureProvider>(feature));
         }
 
         [Fact]
@@ -286,7 +290,7 @@ namespace Microsoft.AspNetCore.Mvc
 
             // Assert
             var descriptor = Assert.Single(services, item => item.ServiceType == typeof(ITempDataProvider));
-            Assert.Equal(typeof(SessionStateTempDataProvider), descriptor.ImplementationType);
+            Assert.Equal(typeof(CookieTempDataProvider), descriptor.ImplementationType);
         }
 
         [Fact]
@@ -355,10 +359,16 @@ namespace Microsoft.AspNetCore.Mvc
                         typeof(IConfigureOptions<RazorViewEngineOptions>),
                         new[]
                         {
-#pragma warning disable 0618
                             typeof(RazorViewEngineOptionsSetup),
-#pragma warning restore 0618
-                            typeof(DependencyContextRazorViewEngineOptionsSetup)
+                            typeof(DependencyContextRazorViewEngineOptionsSetup),
+                            typeof(RazorPagesRazorViewEngineOptionsSetup),
+                        }
+                    },
+                    {
+                        typeof(IConfigureOptions<RazorPagesOptions>),
+                        new[]
+                        {
+                            typeof(RazorPagesOptionsSetup),
                         }
                     },
                     {
@@ -373,6 +383,7 @@ namespace Microsoft.AspNetCore.Mvc
                         new Type[]
                         {
                             typeof(ControllerActionDescriptorProvider),
+                            typeof(PageActionDescriptorProvider),
                         }
                     },
                     {
@@ -380,6 +391,7 @@ namespace Microsoft.AspNetCore.Mvc
                         new Type[]
                         {
                             typeof(ControllerActionInvokerProvider),
+                            typeof(PageActionInvokerProvider),
                         }
                     },
                     {
@@ -404,6 +416,7 @@ namespace Microsoft.AspNetCore.Mvc
                             typeof(DefaultApplicationModelProvider),
                             typeof(CorsApplicationModelProvider),
                             typeof(AuthorizationApplicationModelProvider),
+                            typeof(TempDataApplicationModelProvider),
                         }
                     },
                     {
@@ -411,6 +424,15 @@ namespace Microsoft.AspNetCore.Mvc
                         new Type[]
                         {
                             typeof(DefaultApiDescriptionProvider),
+                            typeof(JsonPatchOperationsArrayProvider),
+                        }
+                    },
+                    {
+                        typeof(IPageApplicationModelProvider),
+                        new[]
+                        {
+                            typeof(CompiledPageApplicationModelProvider),
+                            typeof(RazorProjectPageApplicationModelProvider),
                         }
                     },
                 };

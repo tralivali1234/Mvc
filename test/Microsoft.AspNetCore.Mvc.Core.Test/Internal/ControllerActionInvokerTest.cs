@@ -22,6 +22,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -166,7 +167,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
         }
 
         [Fact]
-        public async Task InvokeAction_InvokesExceptionFilter_ShortCircuit_ExceptionNull()
+        public async Task InvokeAction_InvokesExceptionFilter_ShortCircuit_ExceptionNull_WithoutResult()
         {
             // Arrange
             var filter1 = new Mock<IExceptionFilter>(MockBehavior.Strict);
@@ -193,7 +194,47 @@ namespace Microsoft.AspNetCore.Mvc.Internal
         }
 
         [Fact]
-        public async Task InvokeAction_InvokesExceptionFilter_ShortCircuit_ExceptionHandled()
+        public async Task InvokeAction_InvokesExceptionFilter_ShortCircuit_ExceptionNull_WithResult()
+        {
+            // Arrange
+            var result = new Mock<IActionResult>(MockBehavior.Strict);
+            result
+                .Setup(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()))
+                .Returns(Task.FromResult(true))
+                .Verifiable();
+
+            var filter1 = new Mock<IExceptionFilter>(MockBehavior.Strict);
+
+            var filter2 = new Mock<IExceptionFilter>(MockBehavior.Strict);
+            filter2
+                .Setup(f => f.OnException(It.IsAny<ExceptionContext>()))
+                .Callback<ExceptionContext>(context =>
+                {
+                    context.Result = result.Object;
+                    context.Exception = null;
+                })
+                .Verifiable();
+
+            // Result filters are never used when an exception bubbles up to exception filters.
+            var resultFilter = new Mock<IResultFilter>(MockBehavior.Strict);
+
+            var invoker = CreateInvoker(
+                new IFilterMetadata[] { filter1.Object, filter2.Object, resultFilter.Object },
+                actionThrows: true);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter2.Verify(
+                f => f.OnException(It.IsAny<ExceptionContext>()),
+                Times.Once());
+
+            result.Verify(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()), Times.Once());
+        }
+
+        [Fact]
+        public async Task InvokeAction_InvokesExceptionFilter_ShortCircuit_ExceptionHandled_WithoutResult()
         {
             // Arrange
             var filter1 = new Mock<IExceptionFilter>(MockBehavior.Strict);
@@ -219,7 +260,47 @@ namespace Microsoft.AspNetCore.Mvc.Internal
         }
 
         [Fact]
-        public async Task InvokeAction_InvokesAsyncExceptionFilter_ShortCircuit_ExceptionNull()
+        public async Task InvokeAction_InvokesExceptionFilter_ShortCircuit_ExceptionHandled_WithResult()
+        {
+            // Arrange
+            var result = new Mock<IActionResult>(MockBehavior.Strict);
+            result
+                .Setup(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()))
+                .Returns(Task.FromResult(true))
+                .Verifiable();
+
+            var filter1 = new Mock<IExceptionFilter>(MockBehavior.Strict);
+
+            var filter2 = new Mock<IExceptionFilter>(MockBehavior.Strict);
+            filter2
+                .Setup(f => f.OnException(It.IsAny<ExceptionContext>()))
+                .Callback<ExceptionContext>(context =>
+                {
+                    context.Result = result.Object;
+                    context.ExceptionHandled = true;
+                })
+                .Verifiable();
+
+            // Result filters are never used when an exception bubbles up to exception filters.
+            var resultFilter = new Mock<IResultFilter>(MockBehavior.Strict);
+
+            var invoker = CreateInvoker(
+                new IFilterMetadata[] { filter1.Object, filter2.Object, resultFilter.Object },
+                actionThrows: true);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter2.Verify(
+                f => f.OnException(It.IsAny<ExceptionContext>()),
+                Times.Once());
+
+            result.Verify(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()), Times.Once());
+        }
+
+        [Fact]
+        public async Task InvokeAction_InvokesAsyncExceptionFilter_ShortCircuit_ExceptionNull_WithoutResult()
         {
             // Arrange
             var filter1 = new Mock<IExceptionFilter>(MockBehavior.Strict);
@@ -229,7 +310,6 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                 .Setup(f => f.OnExceptionAsync(It.IsAny<ExceptionContext>()))
                 .Callback<ExceptionContext>(context =>
                 {
-                    filter2.ToString();
                     context.Exception = null;
                 })
                 .Returns<ExceptionContext>((context) => Task.FromResult(true))
@@ -248,7 +328,48 @@ namespace Microsoft.AspNetCore.Mvc.Internal
         }
 
         [Fact]
-        public async Task InvokeAction_InvokesAsyncExceptionFilter_ShortCircuit_ExceptionHandled()
+        public async Task InvokeAction_InvokesAsyncExceptionFilter_ShortCircuit_ExceptionNull_WithResult()
+        {
+            // Arrange
+            var result = new Mock<IActionResult>(MockBehavior.Strict);
+            result
+                .Setup(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()))
+                .Returns(Task.FromResult(true))
+                .Verifiable();
+
+            var filter1 = new Mock<IExceptionFilter>(MockBehavior.Strict);
+            var filter2 = new Mock<IAsyncExceptionFilter>(MockBehavior.Strict);
+
+            filter2
+                .Setup(f => f.OnExceptionAsync(It.IsAny<ExceptionContext>()))
+                .Callback<ExceptionContext>(context =>
+                {
+                    context.Exception = null;
+                    context.Result = result.Object;
+                })
+                .Returns<ExceptionContext>((context) => Task.FromResult(true))
+                .Verifiable();
+
+            // Result filters are never used when an exception bubbles up to exception filters.
+            var resultFilter = new Mock<IResultFilter>(MockBehavior.Strict);
+
+            var invoker = CreateInvoker(
+                new IFilterMetadata[] { filter1.Object, filter2.Object, resultFilter.Object },
+                actionThrows: true);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter2.Verify(
+                f => f.OnExceptionAsync(It.IsAny<ExceptionContext>()),
+                Times.Once());
+
+            result.Verify(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()), Times.Once());
+        }
+
+        [Fact]
+        public async Task InvokeAction_InvokesAsyncExceptionFilter_ShortCircuit_ExceptionHandled_WithoutResult()
         {
             // Arrange
             var filter1 = new Mock<IExceptionFilter>(MockBehavior.Strict);
@@ -272,6 +393,88 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             filter2.Verify(
                 f => f.OnExceptionAsync(It.IsAny<ExceptionContext>()),
                 Times.Once());
+        }
+
+        [Fact]
+        public async Task InvokeAction_InvokesAsyncExceptionFilter_ShortCircuit_ExceptionHandled_WithResult()
+        {
+            // Arrange
+            var result = new Mock<IActionResult>(MockBehavior.Strict);
+            result
+                .Setup(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()))
+                .Returns(Task.FromResult(true))
+                .Verifiable();
+
+            var filter1 = new Mock<IExceptionFilter>(MockBehavior.Strict);
+            var filter2 = new Mock<IAsyncExceptionFilter>(MockBehavior.Strict);
+
+            filter2
+                .Setup(f => f.OnExceptionAsync(It.IsAny<ExceptionContext>()))
+                .Callback<ExceptionContext>(context =>
+                {
+                    context.ExceptionHandled = true;
+                    context.Result = result.Object;
+                })
+                .Returns<ExceptionContext>((context) => Task.FromResult(true))
+                .Verifiable();
+
+            // Result filters are never used when an exception bubbles up to exception filters.
+            var resultFilter = new Mock<IResultFilter>(MockBehavior.Strict);
+
+            var invoker = CreateInvoker(
+                new IFilterMetadata[] { filter1.Object, filter2.Object, resultFilter.Object },
+                actionThrows: true);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter2.Verify(
+                f => f.OnExceptionAsync(It.IsAny<ExceptionContext>()),
+                Times.Once());
+
+            result.Verify(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()), Times.Once());
+        }
+
+        [Fact]
+        public async Task InvokeAction_InvokesAsyncExceptionFilter_SettingResultDoesNotShortCircuit()
+        {
+            // Arrange
+            var result = new Mock<IActionResult>(MockBehavior.Strict);
+            result
+                .Setup(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()))
+                .Returns<ActionContext>((context) => Task.FromResult(true))
+                .Verifiable();
+
+            var filter1 = new Mock<IAsyncExceptionFilter>(MockBehavior.Strict);
+            filter1
+                .Setup(f => f.OnExceptionAsync(It.IsAny<ExceptionContext>()))
+                .Callback<ExceptionContext>(context =>
+                {
+                    context.Result = result.Object;
+                })
+                .Returns<ExceptionContext>((context) => Task.FromResult(true))
+                .Verifiable();
+
+            var filter2 = new Mock<IExceptionFilter>(MockBehavior.Strict);
+            filter2
+                .Setup(f => f.OnException(It.IsAny<ExceptionContext>()))
+                .Callback<ExceptionContext>(c => { }) // Does nothing, we just want to verify that it was called.
+                .Verifiable();
+
+            var resultFilter = new Mock<IResultFilter>(MockBehavior.Strict);
+
+            var invoker = CreateInvoker(
+                new IFilterMetadata[] { filter1.Object, filter2.Object, resultFilter.Object },
+                actionThrows: true);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter1.Verify(f => f.OnExceptionAsync(It.IsAny<ExceptionContext>()), Times.Once());
+            filter2.Verify(f => f.OnException(It.IsAny<ExceptionContext>()), Times.Once());
+            result.Verify(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()), Times.Once());
         }
 
         [Fact]
@@ -317,6 +520,43 @@ namespace Microsoft.AspNetCore.Mvc.Internal
 
             // Assert
             filter.Verify(f => f.OnException(It.IsAny<ExceptionContext>()), Times.Once());
+            result.Verify(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()), Times.Once());
+        }
+
+        [Fact]
+        public async Task InvokeAction_InvokesExceptionFilter_SettingResultDoesNotShortCircuit()
+        {
+            // Arrange
+            var result = new Mock<IActionResult>(MockBehavior.Strict);
+            result
+                .Setup(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()))
+                .Returns<ActionContext>((context) => Task.FromResult(true))
+                .Verifiable();
+
+            var filter1 = new Mock<IExceptionFilter>(MockBehavior.Strict);
+            filter1
+                .Setup(f => f.OnException(It.IsAny<ExceptionContext>()))
+                .Callback<ExceptionContext>(c => c.Result = result.Object)
+                .Verifiable();
+
+            var filter2 = new Mock<IExceptionFilter>(MockBehavior.Strict);
+            filter2
+                .Setup(f => f.OnException(It.IsAny<ExceptionContext>()))
+                .Callback<ExceptionContext>(c => { }) // Does nothing, we just want to verify that it was called.
+                .Verifiable();
+
+            var resultFilter = new Mock<IResultFilter>(MockBehavior.Strict);
+
+            var invoker = CreateInvoker(
+                new IFilterMetadata[] { filter1.Object, filter2.Object, resultFilter.Object },
+                actionThrows: true);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter1.Verify(f => f.OnException(It.IsAny<ExceptionContext>()), Times.Once());
+            filter2.Verify(f => f.OnException(It.IsAny<ExceptionContext>()), Times.Once());
             result.Verify(r => r.ExecuteResultAsync(It.IsAny<ActionContext>()), Times.Once());
         }
 
@@ -2668,32 +2908,40 @@ namespace Microsoft.AspNetCore.Mvc.Internal
 
             var context = new Mock<HttpContext>();
             context.SetupGet(c => c.Items)
-                   .Returns(new Dictionary<object, object>());
+                .Returns(new Dictionary<object, object>());
             context.Setup(c => c.RequestServices.GetService(typeof(ILoggerFactory)))
-                       .Returns(new NullLoggerFactory());
+                .Returns(new NullLoggerFactory());
 
             var actionContext = new ActionContext(context.Object, new RouteData(), actionDescriptor);
 
             var controllerFactory = new Mock<IControllerFactory>();
             controllerFactory.Setup(c => c.CreateController(It.IsAny<ControllerContext>()))
-                             .Returns(new TestController());
+                .Returns(new TestController());
 
             var metadataProvider = new EmptyModelMetadataProvider();
 
-            var argumentBinder = new DefaultControllerArgumentBinder(
-                    metadataProvider,
-                    TestModelBinderFactory.CreateDefault(metadataProvider),
-                    new DefaultObjectValidator(metadataProvider, new IModelValidatorProvider[0]));
+            var parameterBinder = new ParameterBinder(
+                metadataProvider,
+                TestModelBinderFactory.CreateDefault(metadataProvider),
+                new DefaultObjectValidator(metadataProvider, new IModelValidatorProvider[0]));
+
+            var controllerContext = new ControllerContext(actionContext)
+            {
+                ValueProviderFactories = new IValueProviderFactory[0]
+            };
+            controllerContext.ModelState.MaxAllowedErrors = 200;
 
             var invoker = new ControllerActionInvoker(
-                CreateFilterCache(),
                 controllerFactory.Object,
-                argumentBinder,
+                parameterBinder,
+                metadataProvider,
                 new NullLoggerFactory().CreateLogger<ControllerActionInvoker>(),
                 new DiagnosticListener("Microsoft.AspNetCore"),
-                actionContext,
-                new IValueProviderFactory[0],
-                200);
+                controllerContext,
+                new IFilterMetadata[0],
+                ObjectMethodExecutor.Create(
+                    actionDescriptor.MethodInfo,
+                    actionDescriptor.ControllerTypeInfo));
 
             // Act
             await invoker.InvokeAsync();
@@ -2721,12 +2969,13 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             actionDescriptor.ControllerTypeInfo = typeof(ControllerActionInvokerTest).GetTypeInfo();
             actionDescriptor.FilterDescriptors = new List<FilterDescriptor>();
             actionDescriptor.Parameters = new List<ParameterDescriptor>();
+            actionDescriptor.BoundProperties = new List<ParameterDescriptor>();
 
             var filter = Mock.Of<IFilterMetadata>();
             var invoker = CreateInvoker(
                 new[] { filter },
                 actionDescriptor,
-                controllerArgumentBinder: null,
+                parameterBinder: null,
                 controller: null,
                 logger: logger);
 
@@ -2753,6 +3002,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             {
                 FilterDescriptors = new List<FilterDescriptor>(),
                 Parameters = new List<ParameterDescriptor>(),
+                BoundProperties = new List<ParameterDescriptor>(),
             };
 
             actionDescriptor.MethodInfo = typeof(ControllerActionInvokerTest).GetMethod(
@@ -2768,7 +3018,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             var invoker = CreateInvoker(
                 new[] { filter },
                 actionDescriptor,
-                controllerArgumentBinder: null,
+                parameterBinder: null,
                 controller: null,
                 diagnosticListener: listener,
                 routeData: routeData);
@@ -2795,6 +3045,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             {
                 FilterDescriptors = new List<FilterDescriptor>(),
                 Parameters = new List<ParameterDescriptor>(),
+                BoundProperties = new List<ParameterDescriptor>(),
             };
 
             actionDescriptor.MethodInfo = typeof(ControllerActionInvokerTest).GetMethod(
@@ -2807,7 +3058,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             var invoker = CreateInvoker(
                 new[] { filter },
                 actionDescriptor,
-                controllerArgumentBinder: null,
+                parameterBinder: null,
                 controller: null,
                 diagnosticListener: listener);
 
@@ -2819,6 +3070,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             Assert.NotNull(listener.AfterAction?.HttpContext);
         }
 
+        [Fact]
         public async Task InvokeAction_ExceptionBubbling_AsyncActionFilter_To_ResourceFilter()
         {
             // Arrange
@@ -2881,6 +3133,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             {
                 FilterDescriptors = new List<FilterDescriptor>(),
                 Parameters = new List<ParameterDescriptor>(),
+                BoundProperties = new List<ParameterDescriptor>(),
             };
 
             if (actionThrows)
@@ -2909,38 +3162,54 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             {
                 FilterDescriptors = new List<FilterDescriptor>(),
                 Parameters = new List<ParameterDescriptor>(),
+                BoundProperties = new List<ParameterDescriptor>(),
+                MethodInfo = typeof(TestController).GetMethod(methodName),
+                ControllerTypeInfo = typeof(TestController).GetTypeInfo(),
             };
 
-            actionDescriptor.MethodInfo = typeof(TestController).GetMethod(methodName);
-            actionDescriptor.ControllerTypeInfo = typeof(TestController).GetTypeInfo();
+            foreach (var argument in arguments)
+            {
+                actionDescriptor.Parameters.Add(new ParameterDescriptor
+                {
+                    Name = argument.Key,
+                    ParameterType = argument.Value.GetType(),
+                });
+            }
 
-            var argumentBinder = new TestControllerArgumentBinder(arguments);
+            var parameterBinder = new TestParameterBinder(arguments);
 
-            return CreateInvoker(filters, actionDescriptor, argumentBinder, _controller, maxAllowedErrorsInModelState);
+            return CreateInvoker(filters, actionDescriptor, _controller, parameterBinder, maxAllowedErrorsInModelState);
         }
 
         private TestControllerActionInvoker CreateInvoker(
             IFilterMetadata[] filters,
             ControllerActionDescriptor actionDescriptor,
-            IControllerArgumentBinder controllerArgumentBinder,
             object controller,
+            ParameterBinder parameterBinder = null,
             int maxAllowedErrorsInModelState = 200,
             List<IValueProviderFactory> valueProviderFactories = null,
             RouteData routeData = null,
             ILogger logger = null,
             object diagnosticListener = null)
         {
-            var httpContext = new Mock<HttpContext>(MockBehavior.Loose);
+            var httpContext = new DefaultHttpContext();
+            var options = new MvcOptions();
+            var mvcOptionsAccessor = new TestOptionsManager<MvcOptions>(options);
 
-            var http = GetHttpContext();
+            var services = new ServiceCollection();
+            services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
+            services.AddSingleton<IOptions<MvcOptions>>(mvcOptionsAccessor);
+            services.AddSingleton(new ObjectResultExecutor(
+                mvcOptionsAccessor,
+                new TestHttpResponseStreamWriterFactory(),
+                NullLoggerFactory.Instance));
 
-            var httpRequest = http.Request;
-            var httpResponse = http.Response;
+            services.AddSingleton(new ContentResultExecutor(
+                NullLogger<ContentResultExecutor>.Instance,
+                new MemoryPoolHttpResponseStreamWriterFactory(ArrayPool<byte>.Shared, ArrayPool<char>.Shared)));
 
-            httpContext.SetupGet(c => c.Request).Returns(httpRequest);
-            httpContext.SetupGet(c => c.Response).Returns(httpResponse);
-
-            httpResponse.Body = new MemoryStream();
+            httpContext.Response.Body = new MemoryStream();
+            httpContext.RequestServices = services.BuildServiceProvider();
 
             var formatter = new Mock<IOutputFormatter>();
             formatter
@@ -2954,36 +3223,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                     await c.HttpContext.Response.WriteAsync(c.Object.ToString());
                 });
 
-            var options = new MvcOptions();
             options.OutputFormatters.Add(formatter.Object);
-
-            var optionsAccessor = new Mock<IOptions<MvcOptions>>();
-            optionsAccessor
-                .SetupGet(o => o.Value)
-                .Returns(options);
-
-            httpContext
-                .Setup(o => o.RequestServices.GetService(typeof(ILoggerFactory)))
-                .Returns(NullLoggerFactory.Instance);
-
-            httpContext
-                .Setup(o => o.RequestServices.GetService(typeof(IOptions<MvcOptions>)))
-                .Returns(optionsAccessor.Object);
-            httpContext.SetupGet(c => c.Items)
-                   .Returns(new Dictionary<object, object>());
-
-            httpContext
-                .Setup(o => o.RequestServices.GetService(typeof(ObjectResultExecutor)))
-                .Returns(new ObjectResultExecutor(
-                    optionsAccessor.Object,
-                    new TestHttpResponseStreamWriterFactory(),
-                    NullLoggerFactory.Instance));
-
-            httpContext
-                .Setup(o => o.RequestServices.GetService(typeof(ContentResultExecutor)))
-                .Returns(new ContentResultExecutor(
-                    new Logger<ContentResultExecutor>(NullLoggerFactory.Instance),
-                   new MemoryPoolHttpResponseStreamWriterFactory(ArrayPool<byte>.Shared, ArrayPool<char>.Shared)));
 
             if (routeData == null)
             {
@@ -2991,49 +3231,14 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             }
 
             var actionContext = new ActionContext(
-                httpContext: httpContext.Object,
+                httpContext: httpContext,
                 routeData: routeData,
                 actionDescriptor: actionDescriptor);
 
-            var filterProvider = new Mock<IFilterProvider>(MockBehavior.Strict);
-            filterProvider
-                .Setup(fp => fp.OnProvidersExecuting(It.IsAny<FilterProviderContext>()))
-                .Callback<FilterProviderContext>(context =>
-                {
-                    foreach (var filterMetadata in filters)
-                    {
-                        context.Results.Add(new FilterItem(new FilterDescriptor(filterMetadata, FilterScope.Action))
-                        {
-                            Filter = filterMetadata,
-                        });
-                    }
-                });
-
-            filterProvider
-                .Setup(fp => fp.OnProvidersExecuted(It.IsAny<FilterProviderContext>()))
-                .Verifiable();
-
-            IControllerArgumentBinder argumentBinder = null;
-
-            if (controllerArgumentBinder == null)
+            if (parameterBinder == null)
             {
-                var mockBinder = new Mock<IControllerArgumentBinder>();
-                mockBinder
-                    .Setup(b => b.BindArgumentsAsync(
-                        It.IsAny<ControllerContext>(),
-                        It.IsAny<object>(),
-                        It.IsAny<IDictionary<string, object>>()))
-                    .Returns(TaskCache.CompletedTask);
-                argumentBinder = mockBinder.Object;
+                parameterBinder = new TestParameterBinder(new Dictionary<string, object>());
             }
-            else
-            {
-                argumentBinder = controllerArgumentBinder;
-            }
-
-            filterProvider
-                .SetupGet(fp => fp.Order)
-                .Returns(-1000);
 
             if (valueProviderFactories == null)
             {
@@ -3052,9 +3257,10 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             }
 
             var invoker = new TestControllerActionInvoker(
-                new[] { filterProvider.Object },
+                filters,
                 new MockControllerFactory(controller ?? this),
-                argumentBinder,
+                parameterBinder,
+                TestModelMetadataProvider.CreateDefaultProvider(),
                 logger,
                 diagnosticSource,
                 actionContext,
@@ -3071,30 +3277,6 @@ namespace Microsoft.AspNetCore.Mvc.Internal
         public ObjectResult ThrowingActionMethod()
         {
             throw _actionException;
-        }
-
-        private static IServiceCollection CreateServices()
-        {
-            var services = new ServiceCollection();
-
-            services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
-
-            return services;
-        }
-
-        private static HttpContext GetHttpContext()
-        {
-            var services = CreateServices();
-
-            var httpContext = new DefaultHttpContext();
-            httpContext.RequestServices = services.BuildServiceProvider();
-
-            return httpContext;
-        }
-
-        public IActionResult ActionMethodWithBodyParameter([FromBody] Person bodyParam)
-        {
-            return new ObjectResult(bodyParam);
         }
 
         public class Person
@@ -3298,33 +3480,27 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             }
         }
 
-        private static ControllerActionInvokerCache CreateFilterCache(IFilterProvider[] filterProviders = null)
-        {
-            var services = new ServiceCollection().BuildServiceProvider();
-            var descriptorProvider = new ActionDescriptorCollectionProvider(services);
-            return new ControllerActionInvokerCache(descriptorProvider, filterProviders.AsEnumerable() ?? new List<IFilterProvider>());
-        }
-
         private class TestControllerActionInvoker : ControllerActionInvoker
         {
             public TestControllerActionInvoker(
-                IFilterProvider[] filterProviders,
+                IFilterMetadata[] filters,
                 MockControllerFactory controllerFactory,
-                IControllerArgumentBinder argumentBinder,
+                ParameterBinder parameterBinder,
+                IModelMetadataProvider modelMetadataProvider,
                 ILogger logger,
                 DiagnosticSource diagnosticSource,
                 ActionContext actionContext,
                 IReadOnlyList<IValueProviderFactory> valueProviderFactories,
                 int maxAllowedErrorsInModelState)
                 : base(
-                      CreateFilterCache(filterProviders),
                       controllerFactory,
-                      argumentBinder,
+                      parameterBinder,
+                      modelMetadataProvider,
                       logger,
                       diagnosticSource,
-                      actionContext,
-                      valueProviderFactories,
-                      maxAllowedErrorsInModelState)
+                      CreatControllerContext(actionContext, valueProviderFactories, maxAllowedErrorsInModelState),
+                      filters,
+                      CreateExecutor((ControllerActionDescriptor)actionContext.ActionDescriptor))
             {
                 ControllerFactory = controllerFactory;
             }
@@ -3337,6 +3513,25 @@ namespace Microsoft.AspNetCore.Mvc.Internal
 
                 // Make sure that the controller was disposed in every test that creates ones.
                 ControllerFactory.Verify();
+            }
+
+            private static ObjectMethodExecutor CreateExecutor(ControllerActionDescriptor actionDescriptor)
+            {
+                return ObjectMethodExecutor.Create(actionDescriptor.MethodInfo, actionDescriptor.ControllerTypeInfo);
+            }
+
+            private static ControllerContext CreatControllerContext(
+                ActionContext actionContext,
+                IReadOnlyList<IValueProviderFactory> valueProviderFactories,
+                int maxAllowedErrorsInModelState)
+            {
+                var controllerContext = new ControllerContext(actionContext)
+                {
+                    ValueProviderFactories = valueProviderFactories.ToList()
+                };
+                controllerContext.ModelState.MaxAllowedErrors = maxAllowedErrorsInModelState;
+
+                return controllerContext;
             }
         }
 
@@ -3356,25 +3551,30 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             }
         }
 
-        private class TestControllerArgumentBinder : IControllerArgumentBinder
+        private class TestParameterBinder : ParameterBinder
         {
             private readonly IDictionary<string, object> _actionParameters;
-            public TestControllerArgumentBinder(IDictionary<string, object> actionParameters)
+            public TestParameterBinder(IDictionary<string, object> actionParameters)
+                : base(
+                    new EmptyModelMetadataProvider(),
+                    TestModelBinderFactory.CreateDefault(),
+                    Mock.Of<IObjectModelValidator>())
             {
                 _actionParameters = actionParameters;
             }
 
-            public Task BindArgumentsAsync(
-                ControllerContext controllerContext,
-                object controller,
-                IDictionary<string, object> arguments)
+            public override Task<ModelBindingResult> BindModelAsync(
+                ActionContext actionContext,
+                IValueProvider valueProvider,
+                ParameterDescriptor parameter,
+                object value)
             {
-                foreach (var entry in _actionParameters)
+                if (_actionParameters.TryGetValue(parameter.Name, out var result))
                 {
-                    arguments.Add(entry.Key, entry.Value);
+                    return Task.FromResult(ModelBindingResult.Success(result));
                 }
 
-                return TaskCache.CompletedTask;
+                return Task.FromResult(ModelBindingResult.Failed());
             }
         }
     }

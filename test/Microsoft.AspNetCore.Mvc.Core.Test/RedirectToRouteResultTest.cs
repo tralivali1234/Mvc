@@ -13,7 +13,7 @@ using Microsoft.AspNetCore.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Internal;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Testing;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -114,6 +114,56 @@ namespace Microsoft.AspNetCore.Mvc
                 It.Is<UrlRouteContext>(routeContext => string.Equals(routeName, routeContext.RouteName))));
             Assert.True(httpContext.Response.Headers.ContainsKey("Location"), "Location header not found");
             Assert.Equal(locationUrl, httpContext.Response.Headers["Location"]);
+        }
+
+        [Fact]
+        public async Task ExecuteResultAsync_WithFragment_PassesCorrectValuesToRedirect()
+        {
+            // Arrange
+            var expectedUrl = "/SampleAction#test";
+            var expectedStatusCode = StatusCodes.Status301MovedPermanently;
+
+            var httpContext = GetHttpContext();
+
+            var actionContext = new ActionContext(httpContext, new RouteData(), new ActionDescriptor());
+
+            var urlHelper = GetMockUrlHelper(expectedUrl);
+            var result = new RedirectToRouteResult("Sample", null, true, "test")
+            {
+                UrlHelper = urlHelper,
+            };
+
+            // Act
+            await result.ExecuteResultAsync(actionContext);
+
+            // Assert
+            Assert.Equal(expectedStatusCode, httpContext.Response.StatusCode);
+            Assert.Equal(expectedUrl, httpContext.Response.Headers["Location"]);
+        }
+
+        [Fact]
+        public async Task ExecuteResultAsync_WithFragment_PassesCorrectValuesToRedirect_WithPreserveMethod()
+        {
+            // Arrange
+            var expectedUrl = "/SampleAction#test";
+            var expectedStatusCode = StatusCodes.Status308PermanentRedirect;
+
+            var httpContext = GetHttpContext();
+
+            var actionContext = new ActionContext(httpContext, new RouteData(), new ActionDescriptor());
+
+            var urlHelper = GetMockUrlHelper(expectedUrl);
+            var result = new RedirectToRouteResult("Sample", null, true, true, "test")
+            {
+                UrlHelper = urlHelper,
+            };
+
+            // Act
+            await result.ExecuteResultAsync(actionContext);
+
+            // Assert
+            Assert.Equal(expectedStatusCode, httpContext.Response.StatusCode);
+            Assert.Equal(expectedUrl, httpContext.Response.Headers["Location"]);
         }
 
         private static HttpContext GetHttpContext(IUrlHelperFactory factory = null)
