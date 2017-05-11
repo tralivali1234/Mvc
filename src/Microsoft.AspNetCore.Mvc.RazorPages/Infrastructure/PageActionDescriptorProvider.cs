@@ -28,7 +28,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure
             _pagesOptions = pagesOptionsAccessor.Value;
         }
 
-        public int Order { get; set; }
+        public int Order { get; set; } = -900; // Run after the default MVC provider, but before others.
 
         public void OnProvidersExecuting(ActionDescriptorProviderContext context)
         {
@@ -88,6 +88,8 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure
                         Name = selector.AttributeRouteModel.Name,
                         Order = selector.AttributeRouteModel.Order ?? 0,
                         Template = selector.AttributeRouteModel.Template,
+                        SuppressLinkGeneration = selector.AttributeRouteModel.SuppressLinkGeneration,
+                        SuppressPathMatching = selector.AttributeRouteModel.SuppressPathMatching,
                     },
                     DisplayName = $"Page: {model.ViewEnginePath}",
                     FilterDescriptors = filters,
@@ -95,7 +97,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure
                     RelativePath = model.RelativePath,
                     RouteValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                     {
-                        { "page", model.ViewEnginePath},
+                        { "page", model.ViewEnginePath },
                     },
                     ViewEnginePath = model.ViewEnginePath,
                 });

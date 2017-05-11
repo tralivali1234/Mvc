@@ -145,9 +145,6 @@ namespace Microsoft.Extensions.DependencyInjection
             services.TryAddSingleton<IActionSelector, ActionSelector>();
             services.TryAddSingleton<ActionConstraintCache>();
 
-            // Performs caching
-            services.TryAddSingleton<IActionSelectorDecisionTreeProvider, ActionSelectorDecisionTreeProvider>();
-
             // Will be cached by the DefaultActionSelector
             services.TryAddEnumerable(
                 ServiceDescriptor.Transient<IActionConstraintProvider, DefaultActionConstraintProvider>());
@@ -215,6 +212,7 @@ namespace Microsoft.Extensions.DependencyInjection
             services.TryAddSingleton<LocalRedirectResultExecutor>();
             services.TryAddSingleton<RedirectToActionResultExecutor>();
             services.TryAddSingleton<RedirectToRouteResultExecutor>();
+            services.TryAddSingleton<RedirectToPageResultExecutor>();
             services.TryAddSingleton<ContentResultExecutor>();
 
             //
