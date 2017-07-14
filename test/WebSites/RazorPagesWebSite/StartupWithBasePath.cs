@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace RazorPagesWebSite
@@ -10,21 +11,19 @@ namespace RazorPagesWebSite
     {
         public void ConfigureServices(IServiceCollection services)
         {
-            services
-                .AddCookieAuthentication(options => options.LoginPath = "/Login")
-                .AddMvc()
+            services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+                .AddCookie(options => options.LoginPath = "/Login");
+            services.AddMvc()
                 .AddCookieTempDataProvider()
                 .AddRazorPagesOptions(options =>
                 {
-                    options.AuthorizePage("/Conventions/Auth");
-                    options.AuthorizeFolder("/Conventions/AuthFolder");
+                    options.Conventions.AuthorizePage("/Conventions/Auth");
+                    options.Conventions.AuthorizeFolder("/Conventions/AuthFolder");
                 });
         }
 
         public void Configure(IApplicationBuilder app)
         {
-            app.UseCultureReplacer();
-
             app.UseAuthentication();
 
             app.UseStaticFiles();

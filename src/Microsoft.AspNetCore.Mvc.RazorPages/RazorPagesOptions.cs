@@ -12,16 +12,17 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
     /// </summary>
     public class RazorPagesOptions
     {
-        private string _root = "/";
+        private string _root = "/Pages";
 
         /// <summary>
-        /// Gets a list of <see cref="IPageApplicationModelConvention"/> instances that will be applied to
-        /// the <see cref="PageModel"/> when discovering Razor Pages.
+        /// Gets a collection of <see cref="IPageConvention"/> instances that are applied during
+        /// route and page model construction.
         /// </summary>
-        public IList<IPageApplicationModelConvention> Conventions { get; } = new List<IPageApplicationModelConvention>();
+        public PageConventionCollection Conventions { get; } = new PageConventionCollection();
 
         /// <summary>
         /// Application relative path used as the root of discovery for Razor Page files.
+        /// Defaults to the <c>/Pages</c> directory under application root.
         /// </summary>
         public string RootDirectory
         {
@@ -35,7 +36,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
 
                 if (value[0] != '/')
                 {
-                    throw new ArgumentException(Resources.PathMustBeAnAppRelativePath, nameof(value));
+                    throw new ArgumentException(Resources.PathMustBeRootRelativePath, nameof(value));
                 }
 
                 _root = value;

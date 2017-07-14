@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Razor.Language;
 
 namespace RazorPageExecutionInstrumentationWebSite
 {
-    public class TestRazorProject : DefaultRazorProject
+    public class TestRazorProject : FileProviderRazorProject
     {
         public TestRazorProject(IRazorViewEngineFileProviderAccessor fileProviderAccessor)
             : base(fileProviderAccessor)
@@ -17,14 +17,14 @@ namespace RazorPageExecutionInstrumentationWebSite
 
         public override RazorProjectItem GetItem(string path)
         {
-            var item = (DefaultRazorProjectItem)base.GetItem(path);
+            var item = (FileProviderRazorProjectItem)base.GetItem(path);
             return new TestRazorProjectItem(item);
         }
 
-        private class TestRazorProjectItem : DefaultRazorProjectItem
+        private class TestRazorProjectItem : FileProviderRazorProjectItem
         {
-            public TestRazorProjectItem(DefaultRazorProjectItem projectItem)
-                : base(projectItem.FileInfo, projectItem.BasePath, projectItem.Path)
+            public TestRazorProjectItem(FileProviderRazorProjectItem projectItem)
+                : base(projectItem.FileInfo, projectItem.BasePath, projectItem.FilePath)
             {
             }
 

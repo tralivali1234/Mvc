@@ -385,6 +385,19 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
         }
 
         [Fact]
+        public async Task HelloWorldWithPageModelAttributeHandler()
+        {
+            // Arrange
+            var url = "HelloWorldWithPageModelAttributeModel?message=DecoratedModel";
+
+            // Act
+            var content = await Client.GetStringAsync(url);
+
+            // Assert
+            Assert.Equal("Hello, DecoratedModel!", content.Trim());
+        }
+
+        [Fact]
         public async Task PageWithoutContent()
         {
             // Arrange
@@ -728,7 +741,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
         public async Task PagePropertiesAreNotBoundInGetRequests()
         {
             // Arrange
-            var expected = "Id = 11, Name = , Age =";
+            var expected = "Id = 11, Name = Test-Name, Age =";
             var validationError = "The Name field is required.";
             var request = new HttpRequestMessage(HttpMethod.Get, "Pages/PropertyBinding/PageWithPropertyAndArgumentBinding?id=11")
             {
@@ -1009,6 +1022,69 @@ Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary`1[AspNetCore._InjectedP
 
             // Assert
             Assert.StartsWith(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task Page_WithSection_CanAccessModel()
+        {
+            // Arrange
+            var expected = "Value is 17";
+
+            // Act
+            var response = await Client.GetStringAsync("/Pages/Section");
+
+            // Assert
+            Assert.StartsWith(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task PagesCanByRoutedViaRoute_AddedViaAddPageRoute()
+        {
+            // Arrange
+            var expected = "Hello, test!";
+
+            // Act
+            var response = await Client.GetStringAsync("/Different-Route/test");
+
+            // Assert
+            Assert.StartsWith(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task PagesCanByRoutedToApplicationRoot_ViaAddPageRoute()
+        {
+            // Arrange
+            var expected = "Hello from NotTheRoot";
+
+            // Act
+            var response = await Client.GetStringAsync("");
+
+            // Assert
+            Assert.StartsWith(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task AuthFiltersAppliedToPageModel_AreExecuted()
+        {
+            // Act
+            var response = await Client.GetAsync("/ModelWithAuthFilter");
+
+            // Assert
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+            Assert.Equal("/Login?ReturnUrl=%2FModelWithAuthFilter", response.Headers.Location.PathAndQuery);
+        }
+
+        [Fact]
+        public async Task PageFiltersAppliedToPageModel_AreExecuted()
+        {
+            // Arrange
+            var expected = "Hello from OnGetEdit";
+
+            // Act
+            var response = await Client.GetStringAsync("/ModelWithPageFilter");
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
         }
 
         private async Task AddAntiforgeryHeaders(HttpRequestMessage request)

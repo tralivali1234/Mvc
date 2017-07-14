@@ -20,8 +20,8 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
     /// </summary>
     public class XmlDataContractSerializerOutputFormatter : TextOutputFormatter
     {
+        private readonly ConcurrentDictionary<Type, object> _serializerCache = new ConcurrentDictionary<Type, object>();
         private DataContractSerializerSettings _serializerSettings;
-        private ConcurrentDictionary<Type, object> _serializerCache = new ConcurrentDictionary<Type, object>();
 
         /// <summary>
         /// Initializes a new instance of <see cref="XmlDataContractSerializerOutputFormatter"/>
@@ -76,7 +76,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
         /// </summary>
         public DataContractSerializerSettings SerializerSettings
         {
-            get { return _serializerSettings; }
+            get => _serializerSettings;
             set
             {
                 if (value == null)
@@ -132,7 +132,9 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
 
             try
             {
-                // Use FormattingUtilities here when https://github.com/aspnet/Mvc/issues/6235 is resolved.
+                // Verify that type is a valid data contract by forcing the serializer to try to create a data contract
+                FormattingUtilities.XsdDataContractExporter.GetRootElementName(type);
+
                 // If the serializer does not support this type it will throw an exception.
                 return new DataContractSerializer(type, _serializerSettings);
             }
@@ -225,8 +227,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
         /// <returns>The <see cref="DataContractSerializer"/> instance.</returns>
         protected virtual DataContractSerializer GetCachedSerializer(Type type)
         {
-            object serializer;
-            if (!_serializerCache.TryGetValue(type, out serializer))
+            if (!_serializerCache.TryGetValue(type, out var serializer))
             {
                 serializer = CreateSerializer(type);
                 if (serializer != null)

@@ -157,6 +157,9 @@ namespace Microsoft.Extensions.DependencyInjection
 
             // Will be cached by the DefaultControllerFactory
             services.TryAddTransient<IControllerActivator, DefaultControllerActivator>();
+
+            services.TryAddSingleton<IControllerFactoryProvider, ControllerFactoryProvider>();
+            services.TryAddSingleton<IControllerActivatorProvider, ControllerActivatorProvider>();
             services.TryAddEnumerable(
                 ServiceDescriptor.Transient<IControllerPropertyActivator, DefaultControllerPropertyActivator>());
 
@@ -172,6 +175,12 @@ namespace Microsoft.Extensions.DependencyInjection
             services.TryAddSingleton<ControllerActionInvokerCache>();
             services.TryAddEnumerable(
                 ServiceDescriptor.Singleton<IFilterProvider, DefaultFilterProvider>());
+
+            //
+            // Resource Filters
+            //
+            services.TryAddTransient<RequestSizeLimitResourceFilter>();
+            services.TryAddTransient<DisableRequestSizeLimitResourceFilter>();
 
             //
             // ModelBinding, Validation

@@ -85,7 +85,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters.Json.Internal
         /// <param name="context">The <see cref="ActionContext"/>.</param>
         /// <param name="result">The <see cref="JsonResult"/>.</param>
         /// <returns>A <see cref="Task"/> which will complete when writing has completed.</returns>
-        public Task ExecuteAsync(ActionContext context, JsonResult result)
+        public virtual Task ExecuteAsync(ActionContext context, JsonResult result)
         {
             if (context == null)
             {
@@ -99,14 +99,12 @@ namespace Microsoft.AspNetCore.Mvc.Formatters.Json.Internal
 
             var response = context.HttpContext.Response;
 
-            string resolvedContentType = null;
-            Encoding resolvedContentTypeEncoding = null;
             ResponseContentTypeHelper.ResolveContentTypeAndEncoding(
                 result.ContentType,
                 response.ContentType,
                 DefaultContentType,
-                out resolvedContentType,
-                out resolvedContentTypeEncoding);
+                out var resolvedContentType,
+                out var resolvedContentTypeEncoding);
 
             response.ContentType = resolvedContentType;
 
@@ -131,7 +129,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters.Json.Internal
                 }
             }
 
-            return TaskCache.CompletedTask;
+            return Task.CompletedTask;
         }
     }
 }

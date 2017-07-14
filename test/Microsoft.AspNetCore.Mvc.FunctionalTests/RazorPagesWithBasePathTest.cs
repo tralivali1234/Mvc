@@ -115,6 +115,16 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             Assert.Equal("/Login?ReturnUrl=%2FConventions%2FAuthFolder", response.Headers.Location.PathAndQuery);
         }
 
+         [Fact]
+        public async Task AuthConvention_AppliedToFolders_CanByOverridenByFiltersOnModel()
+        {
+            // Act
+            var response = await Client.GetStringAsync("/Conventions/AuthFolder/AnonymousViaModel");
+
+            // Assert
+            Assert.Equal("Hello from Anonymous", response.Trim());
+        }
+
         [Fact]
         public async Task ViewStart_IsDiscoveredWhenRootDirectoryIsSpecified()
         {
@@ -124,6 +134,20 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
 
             // Act
             var response = await Client.GetStringAsync("/WithViewStart");
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task ViewStart_IsDiscoveredForFilesOutsidePageRoot()
+        {
+            //Arrange
+            var newLine = Environment.NewLine;
+            var expected = $"Hello from _ViewStart at root{newLine}Hello from _ViewStart{newLine}Hello from page";
+
+            // Act
+            var response = await Client.GetStringAsync("/WithViewStart/ViewStartAtRoot");
 
             // Assert
             Assert.Equal(expected, response.Trim());

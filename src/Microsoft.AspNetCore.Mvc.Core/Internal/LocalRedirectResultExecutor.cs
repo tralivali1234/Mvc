@@ -31,18 +31,27 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             _urlHelperFactory = urlHelperFactory;
         }
 
-        public void Execute(ActionContext context, LocalRedirectResult result)
+        public virtual void Execute(ActionContext context, LocalRedirectResult result)
         {
+            if (context == null)
+            {
+                throw new ArgumentNullException(nameof(context));
+            }
+
+            if (result == null)
+            {
+                throw new ArgumentNullException(nameof(result));
+            }
+
             var urlHelper = result.UrlHelper ?? _urlHelperFactory.GetUrlHelper(context);
 
             // IsLocalUrl is called to handle  Urls starting with '~/'.
-            var destinationUrl = result.Url;
             if (!urlHelper.IsLocalUrl(result.Url))
             {
                 throw new InvalidOperationException(Resources.UrlNotLocal);
             }
 
-            destinationUrl = urlHelper.Content(result.Url);
+            var destinationUrl = urlHelper.Content(result.Url);
             _logger.LocalRedirectResultExecuting(destinationUrl);
 
             if (result.PreserveMethod)

@@ -6,9 +6,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
-using System.Text;
 using System.Text.Encodings.Web;
-using Microsoft.AspNetCore.Mvc.Core.Internal;
+using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.Mvc.Razor.Internal;
 using Microsoft.AspNetCore.Mvc.ViewEngines;
 using Microsoft.AspNetCore.Razor.Language;
@@ -45,6 +44,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
         private readonly ILogger _logger;
         private readonly RazorViewEngineOptions _options;
         private readonly RazorProject _razorProject;
+        private readonly DiagnosticSource _diagnosticSource;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="RazorViewEngine" />.
@@ -55,7 +55,8 @@ namespace Microsoft.AspNetCore.Mvc.Razor
             HtmlEncoder htmlEncoder,
             IOptions<RazorViewEngineOptions> optionsAccessor,
             RazorProject razorProject,
-            ILoggerFactory loggerFactory)
+            ILoggerFactory loggerFactory,
+            DiagnosticSource diagnosticSource)
         {
             _options = optionsAccessor.Value;
 
@@ -78,6 +79,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
             _htmlEncoder = htmlEncoder;
             _logger = loggerFactory.CreateLogger<RazorViewEngine>();
             _razorProject = razorProject;
+            _diagnosticSource = diagnosticSource;
             ViewLookupCache = new MemoryCache(new MemoryCacheOptions());
         }
 
@@ -222,7 +224,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
                     cacheResult = new ViewLocationCacheResult(new[] { applicationRelativePath });
                 }
 
-                cacheResult = ViewLookupCache.Set<ViewLocationCacheResult>(
+                cacheResult = ViewLookupCache.Set(
                     cacheKey,
                     cacheResult,
                     cacheEntryOptions);
@@ -303,13 +305,12 @@ namespace Microsoft.AspNetCore.Mvc.Razor
                 return pagePath;
             }
 
-            string absolutePath;
             if (string.IsNullOrEmpty(executingFilePath))
             {
                 // Given a relative path i.e. not yet application-relative (starting with "~/" or "/"), interpret
                 // path relative to currently-executing view, if any.
                 // Not yet executing a view. Start in app root.
-                absolutePath = "/" + pagePath;
+                var absolutePath = "/" + pagePath;
                 return ViewEnginePath.ResolvePath(absolutePath);
             }
 
@@ -385,7 +386,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
                 cacheEntryOptions.AddExpirationToken(expirationToken);
             }
 
-            return ViewLookupCache.Set<ViewLocationCacheResult>(cacheKey, cacheResult, cacheEntryOptions);
+            return ViewLookupCache.Set(cacheKey, cacheResult, cacheEntryOptions);
         }
 
         // Internal for unit testing
@@ -395,11 +396,12 @@ namespace Microsoft.AspNetCore.Mvc.Razor
             bool isMainPage)
         {
             var factoryResult = _pageFactory.CreateFactory(relativePath);
-            if (factoryResult.ExpirationTokens != null)
+            var viewDescriptor = factoryResult.ViewDescriptor;
+            if (viewDescriptor?.ExpirationTokens != null)
             {
-                for (var i = 0; i < factoryResult.ExpirationTokens.Count; i++)
+                for (var i = 0; i < viewDescriptor.ExpirationTokens.Count; i++)
                 {
-                    expirationTokens.Add(factoryResult.ExpirationTokens[i]);
+                    expirationTokens.Add(viewDescriptor.ExpirationTokens[i]);
                 }
             }
 
@@ -407,9 +409,9 @@ namespace Microsoft.AspNetCore.Mvc.Razor
             {
                 // Only need to lookup _ViewStarts for the main page.
                 var viewStartPages = isMainPage ?
-                    GetViewStartPages(relativePath, expirationTokens) :
+                    GetViewStartPages(viewDescriptor.RelativePath, expirationTokens) :
                     Array.Empty<ViewLocationCacheItem>();
-                if (factoryResult.IsPrecompiled)
+                if (viewDescriptor.IsPrecompiled)
                 {
                     _logger.PrecompiledViewFound(relativePath);
                 }
@@ -426,17 +428,17 @@ namespace Microsoft.AspNetCore.Mvc.Razor
             string path,
             HashSet<IChangeToken> expirationTokens)
         {
-            var applicationRelativePath = MakePathApplicationRelative(path);
             var viewStartPages = new List<ViewLocationCacheItem>();
 
-            foreach (var viewStartProjectItem in _razorProject.FindHierarchicalItems(applicationRelativePath, ViewStartFileName))
+            foreach (var viewStartProjectItem in _razorProject.FindHierarchicalItems(path, ViewStartFileName))
             {
-                var result = _pageFactory.CreateFactory(viewStartProjectItem.Path);
-                if (result.ExpirationTokens != null)
+                var result = _pageFactory.CreateFactory(viewStartProjectItem.FilePath);
+                var viewDescriptor = result.ViewDescriptor;
+                if (viewDescriptor?.ExpirationTokens != null)
                 {
-                    for (var i = 0; i < result.ExpirationTokens.Count; i++)
+                    for (var i = 0; i < viewDescriptor.ExpirationTokens.Count; i++)
                     {
-                        expirationTokens.Add(result.ExpirationTokens[i]);
+                        expirationTokens.Add(viewDescriptor.ExpirationTokens[i]);
                     }
                 }
 
@@ -445,7 +447,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
                     // Populate the viewStartPages list so that _ViewStarts appear in the order the need to be
                     // executed (closest last, furthest first). This is the reverse order in which
                     // ViewHierarchyUtility.GetViewStartLocations returns _ViewStarts.
-                    viewStartPages.Insert(0, new ViewLocationCacheItem(result.RazorPageFactory, viewStartProjectItem.Path));
+                    viewStartPages.Insert(0, new ViewLocationCacheItem(result.RazorPageFactory, viewStartProjectItem.FilePath));
                 }
             }
 
@@ -468,7 +470,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
                 viewStarts[i] = viewStartItem.PageFactory();
             }
 
-            var view = new RazorView(this, _pageActivator, viewStarts, page, _htmlEncoder);
+            var view = new RazorView(this, _pageActivator, viewStarts, page, _htmlEncoder, _diagnosticSource);
             return ViewEngineResult.Found(viewName, view);
         }
 
@@ -476,22 +478,6 @@ namespace Microsoft.AspNetCore.Mvc.Razor
         {
             Debug.Assert(!string.IsNullOrEmpty(name));
             return name[0] == '~' || name[0] == '/';
-        }
-
-        private string MakePathApplicationRelative(string path)
-        {
-            Debug.Assert(!string.IsNullOrEmpty(path));
-            if (path[0] == '~')
-            {
-                path = path.Substring(1);
-            }
-
-            if (path[0] != '/')
-            {
-                path = '/' + path;
-            }
-
-            return path;
         }
 
         private static bool IsRelativePath(string name)
