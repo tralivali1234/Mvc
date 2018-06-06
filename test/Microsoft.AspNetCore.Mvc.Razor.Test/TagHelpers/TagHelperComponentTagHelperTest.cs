@@ -5,11 +5,15 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Razor.Internal;
+using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Razor.TagHelpers;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging.Testing;
+using Moq;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
@@ -19,7 +23,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
         [Fact]
         public void Init_InvokesComponentsInitInCorrectOrder()
         {
-            // Arrange            
+            // Arrange
             var tagHelperContext = new TagHelperContext(
                 "head",
                 allAttributes: new TagHelperAttributeList(
@@ -28,7 +32,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
                 uniqueId: "test");
 
             var incrementer = 0;
-            var testTagHelperComponentManager = new TagHelperComponentManager(new []
+            var testTagHelperComponentManager = new TagHelperComponentManager(new[]
             {
                 new CallbackTagHelperComponent(
                     order: 2,
@@ -68,7 +72,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
         [Fact]
         public async void ProcessAsync_InvokesComponentsProcessAsyncInCorrectOrder()
         {
-            // Arrange            
+            // Arrange
             var tagHelperContext = new TagHelperContext(
                 "head",
                 allAttributes: new TagHelperAttributeList(
@@ -83,7 +87,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
                     new DefaultTagHelperContent()));
 
             var incrementer = 0;
-            var testTagHelperComponentManager = new TagHelperComponentManager(new []
+            var testTagHelperComponentManager = new TagHelperComponentManager(new[]
             {
                 new CallbackTagHelperComponent(
                     order: 2,
@@ -124,7 +128,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
         [Fact]
         public void Init_InvokesTagHelperComponentInit()
         {
-            // Arrange            
+            // Arrange
             var tagHelperContext = new TagHelperContext(
                 "head",
                 allAttributes: new TagHelperAttributeList(
@@ -169,7 +173,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
                 getChildContentAsync: (useCachedResult, encoder) => Task.FromResult<TagHelperContent>(
                     new DefaultTagHelperContent()));
 
-            var testTagHelperComponentManager = new TagHelperComponentManager(new []
+            var testTagHelperComponentManager = new TagHelperComponentManager(new[]
             {
                 new TestTagHelperComponent()
             });
@@ -179,7 +183,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
             // Act
             await testTagHelperComponentTagHelper.ProcessAsync(tagHelperContext, output);
 
-            // Assert           
+            // Assert
             Assert.Equal("Processed1", output.PostContent.GetContent());
         }
 
@@ -200,7 +204,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
                 getChildContentAsync: (useCachedResult, encoder) => Task.FromResult<TagHelperContent>(
                     new DefaultTagHelperContent()));
 
-            var testTagHelperComponentManager = new TagHelperComponentManager(new []
+            var testTagHelperComponentManager = new TagHelperComponentManager(new[]
             {
                 new TestTagHelperComponent()
             });
@@ -212,7 +216,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
             // Act
             await testTagHelperComponentTagHelper.ProcessAsync(tagHelperContext, output);
 
-            // Assert           
+            // Assert
             Assert.Equal("Processed0Processed1Processed2", output.PostContent.GetContent());
         }
 
@@ -235,7 +239,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
                 getChildContentAsync: (useCachedResult, encoder) => Task.FromResult<TagHelperContent>(
                     new DefaultTagHelperContent()));
 
-            var testTagHelperComponentManager = new TagHelperComponentManager(new []
+            var testTagHelperComponentManager = new TagHelperComponentManager(new[]
             {
                 new TestTagHelperComponent()
             });
@@ -246,7 +250,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
             testTagHelperComponentTagHelper.Init(tagHelperContext);
 
             // Assert
-            Assert.Equal($"Tag helper component '{typeof(TestTagHelperComponent)}' initialized.", sink.Writes[0].State.ToString(), StringComparer.Ordinal);
+            Assert.Equal($"Tag helper component '{typeof(TestTagHelperComponent)}' initialized.", sink.Writes.First().State.ToString(), StringComparer.Ordinal);
         }
 
         [Fact]
@@ -268,7 +272,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
                 getChildContentAsync: (useCachedResult, encoder) => Task.FromResult<TagHelperContent>(
                     new DefaultTagHelperContent()));
 
-            var testTagHelperComponentManager = new TagHelperComponentManager(new []
+            var testTagHelperComponentManager = new TagHelperComponentManager(new[]
             {
                 new TestTagHelperComponent()
             });
@@ -278,8 +282,35 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
             // Act
             await testTagHelperComponentTagHelper.ProcessAsync(tagHelperContext, output);
 
-            // Assert           
-            Assert.Equal($"Tag helper component '{typeof(TestTagHelperComponent)}' processed.", sink.Writes[0].State.ToString(), StringComparer.Ordinal);
+            // Assert
+            Assert.Equal($"Tag helper component '{typeof(TestTagHelperComponent)}' processed.", sink.Writes.First().State.ToString(), StringComparer.Ordinal);
+        }
+
+        [Fact]
+        public void Init_GetsTagHelperComponentPropertyActivator_FromRequestServices()
+        {
+            // Arrange
+            var tagHelperContext = new TagHelperContext(
+                "head",
+                allAttributes: new TagHelperAttributeList(
+                    Enumerable.Empty<TagHelperAttribute>()),
+                items: new Dictionary<object, object>(),
+                uniqueId: "test");
+
+            var testTagHelperComponentManager = new TagHelperComponentManager(new[]
+            {
+                new TestTagHelperComponent()
+            });
+
+            var testTagHelperComponentTagHelper = new TestTagHelperComponentTagHelper(
+                testTagHelperComponentManager,
+                NullLoggerFactory.Instance);
+
+            // Act
+            testTagHelperComponentTagHelper.Init(tagHelperContext);
+
+            // Assert
+            Assert.NotNull(testTagHelperComponentTagHelper.PropertyActivator);
         }
 
         private class TestTagHelperComponentTagHelper : TagHelperComponentTagHelper
@@ -289,6 +320,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
                 ILoggerFactory loggerFactory)
                 : base(manager, loggerFactory)
             {
+                ViewContext = CreateViewContext();
             }
         }
 
@@ -355,6 +387,19 @@ namespace Microsoft.AspNetCore.Mvc.Razor.TagHelpers
                 output.PostContent.AppendHtml("Processed" + Order);
                 return Task.CompletedTask;
             }
+        }
+
+        private static ViewContext CreateViewContext()
+        {
+            var httpContext = new DefaultHttpContext()
+            {
+                RequestServices = new ServiceCollection()
+                .AddSingleton<ITagHelperComponentPropertyActivator>(new TagHelperComponentPropertyActivator())
+                .BuildServiceProvider()
+            };
+
+            var viewContext = Mock.Of<ViewContext>(vc => vc.HttpContext == httpContext);
+            return viewContext;
         }
     }
 }

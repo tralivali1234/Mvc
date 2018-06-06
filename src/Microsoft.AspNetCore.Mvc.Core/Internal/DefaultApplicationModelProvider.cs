@@ -18,11 +18,20 @@ namespace Microsoft.AspNetCore.Mvc.Internal
 {
     public class DefaultApplicationModelProvider : IApplicationModelProvider
     {
-        private readonly ICollection<IFilterMetadata> _globalFilters;
+        private readonly MvcOptions _mvcOptions;
+        private readonly IModelMetadataProvider _modelMetadataProvider;
+        private readonly Func<ActionContext, bool> _supportsAllRequests;
+        private readonly Func<ActionContext, bool> _supportsNonGetRequests;
 
-        public DefaultApplicationModelProvider(IOptions<MvcOptions> mvcOptionsAccessor)
+        public DefaultApplicationModelProvider(
+            IOptions<MvcOptions> mvcOptionsAccessor,
+            IModelMetadataProvider modelMetadataProvider)
         {
-            _globalFilters = mvcOptionsAccessor.Value.Filters;
+            _mvcOptions = mvcOptionsAccessor.Value;
+            _modelMetadataProvider = modelMetadataProvider;
+
+            _supportsAllRequests = _ => true;
+            _supportsNonGetRequests = context => !string.Equals(context.HttpContext.Request.Method, "GET", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <inheritdoc />
@@ -36,7 +45,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                 throw new ArgumentNullException(nameof(context));
             }
 
-            foreach (var filter in _globalFilters)
+            foreach (var filter in _mvcOptions.Filters)
             {
                 context.Result.Filters.Add(filter);
             }
@@ -105,7 +114,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                 throw new ArgumentNullException(nameof(typeInfo));
             }
 
-            // For attribute routes on a controller, we want want to support 'overriding' routes on a derived
+            // For attribute routes on a controller, we want to support 'overriding' routes on a derived
             // class. So we need to walk up the hierarchy looking for the first class to define routes.
             //
             // Then we want to 'filter' the set of attributes, so that only the effective routes apply.
@@ -117,9 +126,9 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             do
             {
                 routeAttributes = currentTypeInfo
-                        .GetCustomAttributes(inherit: false)
-                        .OfType<IRouteTemplateProvider>()
-                        .ToArray();
+                    .GetCustomAttributes(inherit: false)
+                    .OfType<IRouteTemplateProvider>()
+                    .ToArray();
 
                 if (routeAttributes.Length > 0)
                 {
@@ -212,18 +221,37 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                 throw new ArgumentNullException(nameof(propertyInfo));
             }
 
-            // CoreCLR returns IEnumerable<Attribute> from GetCustomAttributes - the OfType<object>
-            // is needed to so that the result of ToArray() is object
             var attributes = propertyInfo.GetCustomAttributes(inherit: true);
-            var propertyModel = new PropertyModel(propertyInfo, attributes);
-            var bindingInfo = BindingInfo.GetBindingInfo(attributes);
 
-            propertyModel.BindingInfo = bindingInfo;
-            propertyModel.PropertyName = propertyInfo.Name;
+            // BindingInfo for properties can be either specified by decorating the property with binding specific attributes.
+            // ModelMetadata also adds information from the property's type and any configured IBindingMetadataProvider.
+            var modelMetadata = _modelMetadataProvider.GetMetadataForProperty(propertyInfo.DeclaringType, propertyInfo.Name);
+            var bindingInfo = BindingInfo.GetBindingInfo(attributes, modelMetadata);
+
+            if (bindingInfo == null)
+            {
+                // Look for BindPropertiesAttribute on the handler type if no BindingInfo was inferred for the property.
+                // This allows a user to enable model binding on properties by decorating the controller type with BindPropertiesAttribute.
+                var declaringType = propertyInfo.DeclaringType;
+                var bindPropertiesAttribute = declaringType.GetCustomAttribute<BindPropertiesAttribute>(inherit: true);
+                if (bindPropertiesAttribute != null)
+                {
+                    var requestPredicate = bindPropertiesAttribute.SupportsGet ? _supportsAllRequests : _supportsNonGetRequests;
+                    bindingInfo = new BindingInfo
+                    {
+                        RequestPredicate = requestPredicate,
+                    };
+                }
+            }
+
+            var propertyModel = new PropertyModel(propertyInfo, attributes)
+            {
+                PropertyName = propertyInfo.Name,
+                BindingInfo = bindingInfo,
+            };
 
             return propertyModel;
         }
-
 
         /// <summary>
         /// Creates the <see cref="ActionModel"/> instance for the given action <see cref="MethodInfo"/>.
@@ -288,10 +316,9 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                 actionModel.RouteValues.Add(routeValueProvider.RouteKey, routeValueProvider.RouteValue);
             }
 
-            //TODO: modify comment
             // Now we need to determine the action selection info (cross-section of routes and constraints)
             //
-            // For attribute routes on a action, we want want to support 'overriding' routes on a
+            // For attribute routes on a action, we want to support 'overriding' routes on a
             // virtual method, but allow 'overriding'. So we need to walk up the hierarchy looking
             // for the first definition to define routes.
             //
@@ -303,9 +330,9 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             while (true)
             {
                 routeAttributes = currentMethodInfo
-                        .GetCustomAttributes(inherit: false)
-                        .OfType<IRouteTemplateProvider>()
-                        .ToArray();
+                    .GetCustomAttributes(inherit: false)
+                    .OfType<IRouteTemplateProvider>()
+                    .ToArray();
 
                 if (routeAttributes.Length > 0)
                 {
@@ -377,7 +404,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                 return false;
             }
 
-            // Overriden methods from Object class, e.g. Equals(Object), GetHashCode(), etc., are not valid.
+            // Overridden methods from Object class, e.g. Equals(Object), GetHashCode(), etc., are not valid.
             if (methodInfo.GetBaseDefinition().DeclaringType == typeof(object))
             {
                 return false;
@@ -424,15 +451,25 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                 throw new ArgumentNullException(nameof(parameterInfo));
             }
 
-            // CoreCLR returns IEnumerable<Attribute> from GetCustomAttributes - the OfType<object>
-            // is needed to so that the result of ToArray() is object
             var attributes = parameterInfo.GetCustomAttributes(inherit: true);
-            var parameterModel = new ParameterModel(parameterInfo, attributes);
 
-            var bindingInfo = BindingInfo.GetBindingInfo(attributes);
-            parameterModel.BindingInfo = bindingInfo;
+            BindingInfo bindingInfo;
+            if (_mvcOptions.AllowValidatingTopLevelNodes && _modelMetadataProvider is ModelMetadataProvider modelMetadataProviderBase)
+            {
+                var modelMetadata = modelMetadataProviderBase.GetMetadataForParameter(parameterInfo);
+                bindingInfo = BindingInfo.GetBindingInfo(attributes, modelMetadata);
+            }
+            else
+            {
+                // GetMetadataForParameter should only be used if the user has opted in to the 2.1 behavior.
+                bindingInfo = BindingInfo.GetBindingInfo(attributes);
+            }
 
-            parameterModel.ParameterName = parameterInfo.Name;
+            var parameterModel = new ParameterModel(parameterInfo, attributes)
+            {
+                ParameterName = parameterInfo.Name,
+                BindingInfo = bindingInfo,
+            };
 
             return parameterModel;
         }

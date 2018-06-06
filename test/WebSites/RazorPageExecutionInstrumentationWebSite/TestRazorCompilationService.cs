@@ -3,15 +3,16 @@
 
 using System.IO;
 using System.Text;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Razor.Internal;
 using Microsoft.AspNetCore.Razor.Language;
 
 namespace RazorPageExecutionInstrumentationWebSite
 {
-    public class TestRazorProject : FileProviderRazorProject
+    public class TestRazorProjectFileSystem : FileProviderRazorProjectFileSystem
     {
-        public TestRazorProject(IRazorViewEngineFileProviderAccessor fileProviderAccessor)
-            : base(fileProviderAccessor)
+        public TestRazorProjectFileSystem(IRazorViewEngineFileProviderAccessor fileProviderAccessor, IHostingEnvironment hostingEnvironment)
+            : base(fileProviderAccessor, hostingEnvironment)
         {
         }
 
@@ -24,7 +25,7 @@ namespace RazorPageExecutionInstrumentationWebSite
         private class TestRazorProjectItem : FileProviderRazorProjectItem
         {
             public TestRazorProjectItem(FileProviderRazorProjectItem projectItem)
-                : base(projectItem.FileInfo, projectItem.BasePath, projectItem.FilePath)
+                : base(projectItem.FileInfo, projectItem.BasePath, projectItem.FilePath, projectItem.RelativePhysicalPath)
             {
             }
 

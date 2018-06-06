@@ -7,11 +7,11 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Formatters;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Routing;
-using Microsoft.AspNetCore.Mvc.TestCommon;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Testing;
@@ -23,6 +23,16 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
 {
     public class PageModelTest
     {
+        [Fact]
+        public void PageContext_GetsInitialized()
+        {
+            // Arrange
+            var pageModel = new TestPageModel();
+
+            // Act & Assert
+            Assert.NotNull(pageModel.PageContext);
+        }
+
         [Fact]
         public void Redirect_WithParameterUrl_SetsRedirectResultSameUrl()
         {
@@ -318,80 +328,80 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
         [InlineData("")]
         [InlineData(null)]
         [InlineData("SampleController")]
-        public void RedirectToAction_WithParameterActionAndControllerName_SetsEqualNames(string pageModelName)
+        public void RedirectToAction_WithParameterActionAndControllerName_SetsEqualNames(string controllerName)
         {
             // Arrange
             var pageModel = new TestPageModel();
 
             // Act
-            var resultTemporary = pageModel.RedirectToAction("SampleAction", pageModelName);
+            var resultTemporary = pageModel.RedirectToAction("SampleAction", controllerName);
 
             // Assert
             Assert.IsType<RedirectToActionResult>(resultTemporary);
             Assert.False(resultTemporary.PreserveMethod);
             Assert.False(resultTemporary.Permanent);
             Assert.Equal("SampleAction", resultTemporary.ActionName);
-            Assert.Equal(pageModelName, resultTemporary.ControllerName);
+            Assert.Equal(controllerName, resultTemporary.ControllerName);
         }
 
         [Theory]
         [InlineData("")]
         [InlineData(null)]
         [InlineData("SampleController")]
-        public void RedirectToActionPreserveMethod_WithParameterActionAndControllerName_SetsEqualNames(string pageModelName)
+        public void RedirectToActionPreserveMethod_WithParameterActionAndControllerName_SetsEqualNames(string controllerName)
         {
             // Arrange
             var pageModel = new TestPageModel();
 
             // Act
-            var resultTemporary = pageModel.RedirectToActionPreserveMethod(actionName: "SampleAction", controllerName: pageModelName);
+            var resultTemporary = pageModel.RedirectToActionPreserveMethod(actionName: "SampleAction", controllerName: controllerName);
 
             // Assert
             Assert.IsType<RedirectToActionResult>(resultTemporary);
             Assert.True(resultTemporary.PreserveMethod);
             Assert.False(resultTemporary.Permanent);
             Assert.Equal("SampleAction", resultTemporary.ActionName);
-            Assert.Equal(pageModelName, resultTemporary.ControllerName);
+            Assert.Equal(controllerName, resultTemporary.ControllerName);
         }
 
         [Theory]
         [InlineData("")]
         [InlineData(null)]
         [InlineData("SampleController")]
-        public void RedirectToActionPermanent_WithParameterActionAndControllerName_SetsEqualNames(string pageModelName)
+        public void RedirectToActionPermanent_WithParameterActionAndControllerName_SetsEqualNames(string controllerName)
         {
             // Arrange
             var pageModel = new TestPageModel();
 
             // Act
-            var resultPermanent = pageModel.RedirectToActionPermanent("SampleAction", pageModelName);
+            var resultPermanent = pageModel.RedirectToActionPermanent("SampleAction", controllerName);
 
             // Assert
             Assert.IsType<RedirectToActionResult>(resultPermanent);
             Assert.False(resultPermanent.PreserveMethod);
             Assert.True(resultPermanent.Permanent);
             Assert.Equal("SampleAction", resultPermanent.ActionName);
-            Assert.Equal(pageModelName, resultPermanent.ControllerName);
+            Assert.Equal(controllerName, resultPermanent.ControllerName);
         }
 
         [Theory]
         [InlineData("")]
         [InlineData(null)]
         [InlineData("SampleController")]
-        public void RedirectToActionPermanentPreserveMethod_WithParameterActionAndControllerName_SetsEqualNames(string pageModelName)
+        public void RedirectToActionPermanentPreserveMethod_WithParameterActionAndControllerName_SetsEqualNames(string controllerName)
         {
             // Arrange
             var pageModel = new TestPageModel();
 
             // Act
-            var resultPermanent = pageModel.RedirectToActionPermanentPreserveMethod(actionName: "SampleAction", controllerName: pageModelName);
+            var resultPermanent = pageModel.RedirectToActionPermanentPreserveMethod(actionName: "SampleAction", controllerName: controllerName);
 
             // Assert
             Assert.IsType<RedirectToActionResult>(resultPermanent);
             Assert.True(resultPermanent.PreserveMethod);
             Assert.True(resultPermanent.Permanent);
             Assert.Equal("SampleAction", resultPermanent.ActionName);
-            Assert.Equal(pageModelName, resultPermanent.ControllerName);
+            Assert.Equal(controllerName, resultPermanent.ControllerName);
         }
 
         [Theory]
@@ -1485,6 +1495,35 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
         }
 
         [Fact]
+        public void BadRequest_SetsStatusCode()
+        {
+            // Arrange
+            var page = new TestPage();
+
+            // Act
+            var result = page.BadRequest();
+
+            // Assert
+            Assert.IsType<BadRequestResult>(result);
+            Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+        }
+
+        [Fact]
+        public void BadRequest_SetsStatusCodeAndResponseContent()
+        {
+            // Arrange
+            var page = new TestPage();
+
+            // Act
+            var result = page.BadRequest("Test Content");
+
+            // Assert
+            Assert.IsType<BadRequestObjectResult>(result);
+            Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+            Assert.Equal("Test Content", result.Value);
+        }
+
+        [Fact]
         public void NotFound_SetsStatusCode()
         {
             // Arrange
@@ -1762,6 +1801,160 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
             Assert.Null(pageResult.Page); // This is set by the invoker
         }
 
+        [Fact]
+        public async Task AsyncPageHandlerExecutingMethod_InvokeSyncMethods()
+        {
+            // Arrange
+            var pageContext = new PageContext(new ActionContext(
+                new DefaultHttpContext(),
+                new RouteData(),
+                new PageActionDescriptor(),
+                new ModelStateDictionary()));
+            var pageHandlerExecutingContext = new PageHandlerExecutingContext(
+                pageContext,
+                Array.Empty<IFilterMetadata>(),
+                new HandlerMethodDescriptor(),
+                new Dictionary<string, object>(),
+                new object());
+            var pageHandlerExecutedContext = new PageHandlerExecutedContext(
+                pageContext,
+                Array.Empty<IFilterMetadata>(),
+                new HandlerMethodDescriptor(),
+                new object());
+            var testPageModel = new Mock<PageModel> { CallBase = true };
+            testPageModel.Setup(p => p.OnPageHandlerExecuting(pageHandlerExecutingContext))
+                .Verifiable();
+            testPageModel.Setup(p => p.OnPageHandlerExecuted(pageHandlerExecutedContext))
+                .Verifiable();
+
+            // Act
+            await testPageModel.Object.OnPageHandlerExecutionAsync(
+                pageHandlerExecutingContext,
+                () => Task.FromResult(pageHandlerExecutedContext));
+
+            testPageModel.Verify();
+        }
+
+        [Fact]
+        public async Task AsyncPageHandlerExecutingMethod__DoesNotInvokeExecutedMethod_IfResultIsSet()
+        {
+            // Arrange
+            var pageContext = new PageContext(new ActionContext(
+                new DefaultHttpContext(),
+                new RouteData(),
+                new PageActionDescriptor(),
+                new ModelStateDictionary()));
+            var pageHandlerExecutingContext = new PageHandlerExecutingContext(
+                pageContext,
+                Array.Empty<IFilterMetadata>(),
+                new HandlerMethodDescriptor(),
+                new Dictionary<string, object>(),
+                new object());
+            var pageHandlerExecutedContext = new PageHandlerExecutedContext(
+                pageContext,
+                Array.Empty<IFilterMetadata>(),
+                new HandlerMethodDescriptor(),
+                new object());
+            var testPageModel = new Mock<PageModel>() { CallBase = true };
+            testPageModel.Setup(p => p.OnPageHandlerExecuting(pageHandlerExecutingContext))
+                .Callback((PageHandlerExecutingContext context) => context.Result = new PageResult())
+                .Verifiable();
+            testPageModel.Setup(p => p.OnPageHandlerExecuted(pageHandlerExecutedContext))
+                .Throws(new Exception("Shouldn't be called"));
+
+            // Act
+            await testPageModel.Object.OnPageHandlerExecutionAsync(
+                pageHandlerExecutingContext,
+                () => Task.FromResult(pageHandlerExecutedContext));
+
+            testPageModel.Verify();
+        }
+
+        [Fact]
+        public async Task AsyncPageHandlerSelectingMethod_InvokeSyncMethods()
+        {
+            // Arrange
+            var pageContext = new PageContext(new ActionContext(
+                new DefaultHttpContext(),
+                new RouteData(),
+                new PageActionDescriptor(),
+                new ModelStateDictionary()));
+            var pageHandlerSelectedContext = new PageHandlerSelectedContext(
+                pageContext,
+                Array.Empty<IFilterMetadata>(),
+                new object());
+
+            var testPageModel = new Mock<PageModel> { CallBase = true };
+            testPageModel.Setup(p => p.OnPageHandlerSelected(pageHandlerSelectedContext))
+                .Verifiable();
+
+            // Act
+            await testPageModel.Object.OnPageHandlerSelectionAsync(pageHandlerSelectedContext);
+
+            testPageModel.Verify();
+        }
+
+        [Fact]
+        public void ViewComponent_WithName()
+        {
+            // Arrange
+            var viewData = new ViewDataDictionary(new EmptyModelMetadataProvider(), new ModelStateDictionary());
+            var pageModel = new TestPageModel
+            {
+                PageContext = new PageContext
+                {
+                    ViewData = viewData,
+                },
+            };
+
+            // Act
+            var result = pageModel.ViewComponent("TagCloud");
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal("TagCloud", result.ViewComponentName);
+            Assert.Same(viewData, result.ViewData);
+        }
+
+        [Fact]
+        public void ViewComponent_WithType()
+        {
+            // Arrange
+            var viewData = new ViewDataDictionary(new EmptyModelMetadataProvider(), new ModelStateDictionary());
+            var pageModel = new TestPageModel
+            {
+                PageContext = new PageContext
+                {
+                    ViewData = viewData,
+                },
+            };
+
+            // Act
+            var result = pageModel.ViewComponent(typeof(Guid));
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal(typeof(Guid), result.ViewComponentType);
+            Assert.Same(viewData, result.ViewData);
+        }
+
+        [Fact]
+        public void ViewComponent_WithArguments()
+        {
+            // Arrange
+            var pageModel = new TestPageModel();
+            var arguments = new { Arg1 = "Hi", Arg2 = "There" };
+
+            // Act
+            var result = pageModel.ViewComponent(typeof(Guid), arguments);
+
+            // Assert
+            Assert.NotNull(result);
+
+            Assert.Equal(typeof(Guid), result.ViewComponentType);
+            Assert.Same(arguments, result.Arguments);
+        }
+
         private class ContentPageModel : PageModel
         {
             public IActionResult Content_WithNoEncoding()
@@ -1807,14 +2000,6 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
             public override Task ExecuteAsync()
             {
                 throw new NotImplementedException();
-            }
-        }
-
-        private class TestPageArgumentBinder : PageArgumentBinder
-        {
-            protected override Task<ModelBindingResult> BindAsync(PageContext context, object value, string name, Type type)
-            {
-                return Task.FromResult(ModelBindingResult.Success(Guid.NewGuid()));
             }
         }
     }

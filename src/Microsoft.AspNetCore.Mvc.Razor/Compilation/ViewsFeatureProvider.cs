@@ -15,6 +15,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Compilation
     /// <summary>
     /// An <see cref="IApplicationFeatureProvider{TFeature}"/> for <see cref="ViewsFeature"/>.
     /// </summary>
+    [Obsolete("This type is obsolete and will be removed in a future version. See " + nameof(IRazorCompiledItemProvider) + " for alternatives.")]
     public class ViewsFeatureProvider : IApplicationFeatureProvider<ViewsFeature>
     {
         public static readonly string PrecompiledViewsAssemblySuffix = ".PrecompiledViews";
@@ -24,10 +25,27 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Compilation
         {
             foreach (var assemblyPart in parts.OfType<AssemblyPart>())
             {
-                var viewAttributes = GetViewAttributes(assemblyPart);
-                foreach (var attribute in viewAttributes)
+                var viewAttributes = GetViewAttributes(assemblyPart)
+                    .Select(attribute => (Attribute: attribute, RelativePath: ViewPath.NormalizePath(attribute.Path)));
+
+                var duplicates = viewAttributes.GroupBy(a => a.RelativePath, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault(g => g.Count() > 1);
+
+                if (duplicates != null)
                 {
-                    var relativePath = ViewPath.NormalizePath(attribute.Path);
+                    // Ensure parts do not specify views with differing cases. This is not supported
+                    // at runtime and we should flag at as such for precompiled views.
+                    var viewsDiffereningInCase = string.Join(Environment.NewLine, duplicates.Select(d => d.RelativePath));
+
+                    var message = string.Join(
+                        Environment.NewLine,
+                        Resources.RazorViewCompiler_ViewPathsDifferOnlyInCase,
+                        viewsDiffereningInCase);
+                    throw new InvalidOperationException(message);
+                }
+
+                foreach (var (attribute, relativePath) in viewAttributes)
+                {
                     var viewDescriptor = new CompiledViewDescriptor
                     {
                         ExpirationTokens = Array.Empty<IChangeToken>(),
@@ -64,7 +82,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Compilation
 
         private static Assembly GetFeatureAssembly(AssemblyPart assemblyPart)
         {
-            if (assemblyPart.Assembly.IsDynamic || string.IsNullOrEmpty(assemblyPart.Assembly.Location))
+            if (assemblyPart.Assembly.IsDynamic || string.IsNullOrEmpty((string)assemblyPart.Assembly.Location))
             {
                 return null;
             }
@@ -72,6 +90,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Compilation
             var precompiledAssemblyFileName = assemblyPart.Assembly.GetName().Name
                 + PrecompiledViewsAssemblySuffix
                 + ".dll";
+
             var precompiledAssemblyFilePath = Path.Combine(
                 Path.GetDirectoryName(assemblyPart.Assembly.Location),
                 precompiledAssemblyFileName);

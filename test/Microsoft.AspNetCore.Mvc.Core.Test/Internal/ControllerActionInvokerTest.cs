@@ -2,7 +2,6 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -15,8 +14,8 @@ using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Formatters;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
-using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,44 +32,6 @@ namespace Microsoft.AspNetCore.Mvc.Internal
     public class ControllerActionInvokerTest : CommonResourceInvokerTest
     {
         #region Diagnostics
-
-        [Fact]
-        public async Task Invoke_Success_LogsCorrectValues()
-        {
-            // Arrange
-            var sink = new TestSink();
-            var loggerFactory = new TestLoggerFactory(sink, enabled: true);
-            var logger = loggerFactory.CreateLogger<ControllerActionInvoker>();
-
-            var displayName = "A.B.C";
-            var actionDescriptor = Mock.Of<ControllerActionDescriptor>(a => a.DisplayName == displayName);
-            actionDescriptor.MethodInfo = typeof(TestController).GetMethod(nameof(TestController.ActionMethod));
-            actionDescriptor.ControllerTypeInfo = typeof(TestController).GetTypeInfo();
-            actionDescriptor.FilterDescriptors = new List<FilterDescriptor>();
-            actionDescriptor.Parameters = new List<ParameterDescriptor>();
-            actionDescriptor.BoundProperties = new List<ParameterDescriptor>();
-
-            var filter = Mock.Of<IFilterMetadata>();
-            var invoker = CreateInvoker(
-                new[] { filter },
-                actionDescriptor,
-                controller: new TestController(),
-                logger: logger);
-
-            // Act
-            await invoker.InvokeAsync();
-
-            // Assert
-            Assert.Single(sink.Scopes);
-            Assert.Equal(displayName, sink.Scopes[0].Scope?.ToString());
-
-            Assert.Equal(4, sink.Writes.Count);
-            Assert.Equal($"Executing action {displayName}", sink.Writes[0].State?.ToString());
-            Assert.Equal($"Executing action method {displayName} with arguments ((null)) - ModelState is Valid", sink.Writes[1].State?.ToString());
-            Assert.Equal($"Executed action method {displayName}, returned result {Result.GetType().FullName}.", sink.Writes[2].State?.ToString());
-            // This message has the execution time embedded, which we don't want to verify.
-            Assert.StartsWith($"Executed action {displayName} ", sink.Writes[3].State?.ToString());
-        }
 
         [Fact]
         public async Task Invoke_WritesDiagnostic_ActionSelected()
@@ -1103,7 +1064,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             await invoker.InvokeAsync();
 
             // Assert
-            Assert.IsType(typeof(EmptyResult), result);
+            Assert.IsType<EmptyResult>(result);
         }
 
         [Fact]
@@ -1131,8 +1092,8 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             await invoker.InvokeAsync();
 
             // Assert
-            Assert.IsType(typeof(ObjectResult), result);
-            Assert.IsType(typeof(int), ((ObjectResult)result).Value);
+            Assert.IsType<ObjectResult>(result);
+            Assert.IsType<int>(((ObjectResult)result).Value);
             Assert.Equal(1, ((ObjectResult)result).Value);
         }
 
@@ -1371,16 +1332,20 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                 actionDescriptor.ControllerTypeInfo,
                 ParameterDefaultValues.GetParameterDefaultValues(actionDescriptor.MethodInfo));
 
+            var controllerMethodExecutor = ActionMethodExecutor.GetExecutor(objectMethodExecutor);
+
             var cacheEntry = new ControllerActionInvokerCacheEntry(
                 new FilterItem[0],
                 _ => new TestController(),
                 (_, __) => { },
                 (_, __, ___) => Task.CompletedTask,
-                actionMethodExecutor: objectMethodExecutor);
+                objectMethodExecutor,
+                controllerMethodExecutor);
 
             var invoker = new ControllerActionInvoker(
                 new NullLoggerFactory().CreateLogger<ControllerActionInvoker>(),
                 new DiagnosticListener("Microsoft.AspNetCore"),
+                new ActionResultTypeMapper(),
                 controllerContext,
                 cacheEntry,
                 new IFilterMetadata[0]);
@@ -1390,6 +1355,101 @@ namespace Microsoft.AspNetCore.Mvc.Internal
 
             // Assert
             Assert.Equal(5, context.Object.Items["Result"]);
+        }
+
+        [Fact]
+        public async Task InvokeAction_ConvertibleToActionResult()
+        {
+            // Arrange
+            var inputParam = 12;
+            var actionParameters = new Dictionary<string, object> { { "input", inputParam }, };
+            IActionResult result = null;
+
+            var filter = new Mock<IActionFilter>(MockBehavior.Strict);
+            filter.Setup(f => f.OnActionExecuting(It.IsAny<ActionExecutingContext>())).Verifiable();
+            filter
+                .Setup(f => f.OnActionExecuted(It.IsAny<ActionExecutedContext>()))
+                .Callback<ActionExecutedContext>(c => result = c.Result)
+                .Verifiable();
+
+            var invoker = CreateInvoker(new[] { filter.Object }, nameof(TestController.ActionReturningConvertibleToActionResult), actionParameters);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            var testActionResult = Assert.IsType<TestActionResult>(result);
+            Assert.Equal(inputParam, testActionResult.Value);
+        }
+
+        [Fact]
+        public async Task InvokeAction_AsyncAction_ConvertibleToActionResult()
+        {
+            // Arrange
+            var inputParam = 13;
+            var actionParameters = new Dictionary<string, object> { { "input", inputParam }, };
+            IActionResult result = null;
+
+            var filter = new Mock<IActionFilter>(MockBehavior.Strict);
+            filter.Setup(f => f.OnActionExecuting(It.IsAny<ActionExecutingContext>())).Verifiable();
+            filter
+                .Setup(f => f.OnActionExecuted(It.IsAny<ActionExecutedContext>()))
+                .Callback<ActionExecutedContext>(c => result = c.Result)
+                .Verifiable();
+
+            var invoker = CreateInvoker(new[] { filter.Object }, nameof(TestController.ActionReturningConvertibleToActionResultAsync), actionParameters);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            var testActionResult = Assert.IsType<TestActionResult>(result);
+            Assert.Equal(inputParam, testActionResult.Value);
+        }
+
+        [Fact]
+        public async Task InvokeAction_ConvertibleToActionResult_AsObject()
+        {
+            // Arrange
+            var actionParameters = new Dictionary<string, object>();
+            IActionResult result = null;
+
+            var filter = new Mock<IActionFilter>(MockBehavior.Strict);
+            filter.Setup(f => f.OnActionExecuting(It.IsAny<ActionExecutingContext>())).Verifiable();
+            filter
+                .Setup(f => f.OnActionExecuted(It.IsAny<ActionExecutedContext>()))
+                .Callback<ActionExecutedContext>(c => result = c.Result)
+                .Verifiable();
+
+            var invoker = CreateInvoker(new[] { filter.Object }, nameof(TestController.ActionReturningConvertibleAsObject), actionParameters);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            Assert.IsType<TestActionResult>(result);
+        }
+
+        [Fact]
+        public async Task InvokeAction_ConvertibleToActionResult_ReturningNull_Throws()
+        {
+            // Arrange
+            var expectedMessage = @"Cannot return null from an action method with a return type of 'Microsoft.AspNetCore.Mvc.Infrastructure.IConvertToActionResult'.";
+            var actionParameters = new Dictionary<string, object>();
+            IActionResult result = null;
+
+            var filter = new Mock<IActionFilter>(MockBehavior.Strict);
+            filter.Setup(f => f.OnActionExecuting(It.IsAny<ActionExecutingContext>())).Verifiable();
+            filter
+                .Setup(f => f.OnActionExecuted(It.IsAny<ActionExecutedContext>()))
+                .Callback<ActionExecutedContext>(c => result = c.Result)
+                .Verifiable();
+
+            var invoker = CreateInvoker(new[] { filter.Object }, nameof(TestController.ConvertibleToActionResultReturningNull), actionParameters);
+
+            // Act & Assert
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => invoker.InvokeAsync());
+            Assert.Equal(expectedMessage, exception.Message);
         }
 
         #endregion
@@ -1499,14 +1559,14 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             }
 
             var httpContext = new DefaultHttpContext();
-            var options = new MvcOptions();
-            var mvcOptionsAccessor = new TestOptionsManager<MvcOptions>(options);
+
+            var options = Options.Create(new MvcOptions());
 
             var services = new ServiceCollection();
             services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
-            services.AddSingleton<IOptions<MvcOptions>>(mvcOptionsAccessor);
-            services.AddSingleton(new ObjectResultExecutor(
-                mvcOptionsAccessor,
+            services.AddSingleton<IOptions<MvcOptions>>(options);
+            services.AddSingleton<IActionResultExecutor<ObjectResult>>(new ObjectResultExecutor(
+                new DefaultOutputFormatterSelector(options, NullLoggerFactory.Instance),
                 new TestHttpResponseStreamWriterFactory(),
                 NullLoggerFactory.Instance));
 
@@ -1525,7 +1585,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                     await c.HttpContext.Response.WriteAsync(c.Object.ToString());
                 });
 
-            options.OutputFormatters.Add(formatter.Object);
+            options.Value.OutputFormatters.Add(formatter.Object);
 
             var diagnosticSource = new DiagnosticListener("Microsoft.AspNetCore");
             if (diagnosticListener != null)
@@ -1537,6 +1597,8 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                 actionDescriptor.MethodInfo,
                 actionDescriptor.ControllerTypeInfo,
                 ParameterDefaultValues.GetParameterDefaultValues(actionDescriptor.MethodInfo));
+
+            var actionMethodExecutor = ActionMethodExecutor.GetExecutor(objectMethodExecutor);
 
             var cacheEntry = new ControllerActionInvokerCacheEntry(
                 new FilterItem[0],
@@ -1551,7 +1613,8 @@ namespace Microsoft.AspNetCore.Mvc.Internal
 
                     return Task.CompletedTask;
                 },
-                objectMethodExecutor);
+                objectMethodExecutor,
+                actionMethodExecutor);
 
             var actionContext = new ActionContext(httpContext, routeData, actionDescriptor);
             var controllerContext = new ControllerContext(actionContext)
@@ -1562,6 +1625,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             var invoker = new ControllerActionInvoker(
                 logger,
                 diagnosticSource,
+                new ActionResultTypeMapper(),
                 controllerContext,
                 cacheEntry,
                 filters);
@@ -1710,6 +1774,22 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                 return input;
             }
 
+            public ConvertibleToActionResult ActionReturningConvertibleToActionResult(int input)
+                => new ConvertibleToActionResult { Value = input };
+
+            public Task<ConvertibleToActionResult> ActionReturningConvertibleToActionResultAsync(int input)
+                => Task.FromResult(new ConvertibleToActionResult { Value = input });
+
+            public object ActionReturningConvertibleAsObject() => new ConvertibleToActionResult();
+
+            public IConvertToActionResult ConvertibleToActionResultReturningNull()
+            {
+                var mock = new Mock<IConvertToActionResult>();
+                mock.Setup(m => m.Convert()).Returns((IActionResult)null);
+
+                return mock.Object;
+            }
+
             public class TaskDerivedType : Task
             {
                 public TaskDerivedType()
@@ -1744,6 +1824,13 @@ namespace Microsoft.AspNetCore.Mvc.Internal
                 actionDescriptor.MethodInfo,
                 actionDescriptor.ControllerTypeInfo,
                 ParameterDefaultValues.GetParameterDefaultValues(actionDescriptor.MethodInfo));
+        }
+
+        public class ConvertibleToActionResult : IConvertToActionResult
+        {
+            public int Value { get; set; }
+
+            public IActionResult Convert() => new TestActionResult { Value = Value };
         }
     }
 }

@@ -281,7 +281,7 @@ namespace System.Web.Http
                 var parameter = Assert.Single(action.Parameters);
                 Assert.Equal((new FromUriAttribute()).BindingSource, parameter.BindingInfo.BindingSource);
                 var optionalParameters = (HashSet<string>)action.Properties["OptionalParameters"];
-                Assert.False(optionalParameters.Contains(parameter.Name));
+                Assert.DoesNotContain(parameter.Name, optionalParameters);
             }
         }
 
@@ -366,7 +366,7 @@ namespace System.Web.Http
                 var parameter = Assert.Single(action.Parameters);
                 Assert.Equal((new FromUriAttribute()).BindingSource, parameter.BindingInfo.BindingSource);
                 var optionalParameters = (HashSet<string>)action.Properties["OptionalParameters"];
-                Assert.True(optionalParameters.Contains(parameter.Name));
+                Assert.Contains(parameter.Name, optionalParameters);
             }
         }
 
@@ -379,22 +379,18 @@ namespace System.Web.Http
             var setup = new WebApiCompatShimOptionsSetup();
             setup.Configure(options);
 
-            var optionsAccessor = new Mock<IOptions<MvcOptions>>();
-            optionsAccessor
-                .SetupGet(o => o.Value)
-                .Returns(options);
-
             var authorizationOptionsAccessor = new Mock<IOptions<AuthorizationOptions>>();
             authorizationOptionsAccessor
                 .SetupGet(o => o.Value)
                 .Returns(new AuthorizationOptions());
 
-            var modelProvider = new DefaultApplicationModelProvider(optionsAccessor.Object);
+            var optionsAccessor = Options.Create(options);
+            var modelProvider = new DefaultApplicationModelProvider(optionsAccessor, TestModelMetadataProvider.CreateDefaultProvider());
 
             var provider = new ControllerActionDescriptorProvider(
                 manager,
                 new[] { modelProvider },
-                optionsAccessor.Object);
+                optionsAccessor);
 
             return provider;
         }

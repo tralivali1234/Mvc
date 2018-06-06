@@ -12,6 +12,8 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Internal;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
 {
@@ -21,26 +23,52 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
     /// <typeparam name="TElement">Type of elements in the collection.</typeparam>
     public class CollectionModelBinder<TElement> : ICollectionModelBinder
     {
+        private static readonly IValueProvider EmptyValueProvider = new CompositeValueProvider();
         private Func<object> _modelCreator;
+
+        /// <summary>
+        /// <para>This constructor is obsolete and will be removed in a future version. The recommended alternative
+        /// is the overload that also takes an <see cref="ILoggerFactory"/>.</para>
+        /// <para>Creates a new <see cref="CollectionModelBinder{TElement}"/>.</para>
+        /// </summary>
+        /// <param name="elementBinder">The <see cref="IModelBinder"/> for binding elements.</param>
+        [Obsolete("This constructor is obsolete and will be removed in a future version. The recommended alternative"
+            + " is the overload that also takes an " + nameof(ILoggerFactory) + ".")]
+        public CollectionModelBinder(IModelBinder elementBinder)
+            : this(elementBinder, NullLoggerFactory.Instance)
+        {
+        }
 
         /// <summary>
         /// Creates a new <see cref="CollectionModelBinder{TElement}"/>.
         /// </summary>
         /// <param name="elementBinder">The <see cref="IModelBinder"/> for binding elements.</param>
-        public CollectionModelBinder(IModelBinder elementBinder)
+        /// <param name="loggerFactory">The <see cref="ILoggerFactory"/>.</param>
+        public CollectionModelBinder(IModelBinder elementBinder, ILoggerFactory loggerFactory)
         {
             if (elementBinder == null)
             {
                 throw new ArgumentNullException(nameof(elementBinder));
             }
 
+            if (loggerFactory == null)
+            {
+                throw new ArgumentNullException(nameof(loggerFactory));
+            }
+
             ElementBinder = elementBinder;
+            Logger = loggerFactory.CreateLogger(GetType());
         }
 
         /// <summary>
         /// Gets the <see cref="IModelBinder"/> instances for binding collection elements.
         /// </summary>
         protected IModelBinder ElementBinder { get; }
+
+        /// <summary>
+        /// The <see cref="ILogger"/> used for logging in this binder.
+        /// </summary>
+        protected ILogger Logger { get; }
 
         /// <inheritdoc />
         public virtual async Task BindModelAsync(ModelBindingContext bindingContext)
@@ -50,9 +78,13 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
                 throw new ArgumentNullException(nameof(bindingContext));
             }
 
+            Logger.AttemptingToBindModel(bindingContext);
+
             var model = bindingContext.Model;
             if (!bindingContext.ValueProvider.ContainsPrefix(bindingContext.ModelName))
             {
+                Logger.FoundNoValueInRequest(bindingContext);
+
                 // If we failed to find data for a top-level model, then generate a
                 // default 'empty' model (or use existing Model) and return it.
                 if (bindingContext.IsTopLevelObject)
@@ -65,6 +97,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
                     bindingContext.Result = ModelBindingResult.Success(model);
                 }
 
+                Logger.DoneAttemptingToBindModel(bindingContext);
                 return;
             }
 
@@ -73,6 +106,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
             CollectionResult result;
             if (valueProviderResult == ValueProviderResult.None)
             {
+                Logger.NoNonIndexBasedFormatFoundForCollection(bindingContext);
                 result = await BindComplexCollection(bindingContext);
             }
             else
@@ -110,6 +144,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
             }
 
             bindingContext.Result = ModelBindingResult.Success(model);
+            Logger.DoneAttemptingToBindModel(bindingContext);
         }
 
         /// <inheritdoc />
@@ -181,6 +216,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
                     bindingContext.ValueProvider
                 };
 
+                // Enter new scope to change ModelMetadata and isolate element binding operations.
                 using (bindingContext.EnterNestedScope(
                     elementMetadata,
                     fieldName: bindingContext.FieldName,
@@ -206,8 +242,18 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
         // Used when the ValueProvider contains the collection to be bound as multiple elements, e.g. foo[0], foo[1].
         private Task<CollectionResult> BindComplexCollection(ModelBindingContext bindingContext)
         {
+            Logger.AttemptingToBindCollectionUsingIndices(bindingContext);
+
             var indexPropertyName = ModelNames.CreatePropertyModelName(bindingContext.ModelName, "index");
-            var valueProviderResultIndex = bindingContext.ValueProvider.GetValue(indexPropertyName);
+
+            // Remove any value provider that may not use indexPropertyName as-is. Don't match e.g. Model[index].
+            var valueProvider = bindingContext.ValueProvider;
+            if (valueProvider is IKeyRewriterValueProvider keyRewriterValueProvider)
+            {
+                valueProvider = keyRewriterValueProvider.Filter() ?? EmptyValueProvider;
+            }
+
+            var valueProviderResultIndex = valueProvider.GetValue(indexPropertyName);
             var indexNames = GetIndexNamesFromValueProviderResult(valueProviderResultIndex);
 
             return BindComplexCollectionFromIndexes(bindingContext, indexNames);
@@ -238,8 +284,6 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
             {
                 var fullChildName = ModelNames.CreateIndexModelName(bindingContext.ModelName, indexName);
 
-                var didBind = false;
-                object boundValue = null;
                 ModelBindingResult? result;
                 using (bindingContext.EnterNestedScope(
                     elementMetadata,
@@ -251,6 +295,8 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
                     result = bindingContext.Result;
                 }
 
+                var didBind = false;
+                object boundValue = null;
                 if (result != null && result.Value.IsModelSet)
                 {
                     didBind = true;
@@ -272,7 +318,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
 
                 // If we're working with a fixed set of indexes then this is the format like:
                 //
-                //  ?parameter.index=zero,one,two&parameter[zero]=0&&parameter[one]=1&parameter[two]=2...
+                //  ?parameter.index=zero&parameter.index=one&parameter.index=two&parameter[zero]=0&parameter[one]=1&parameter[two]=2...
                 //
                 // We need to provide this data to the validation system so it can 'replay' the keys.
                 // But we can't just set ValidationState here, because it needs the 'real' model.
@@ -296,10 +342,11 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
         /// </summary>
         /// <param name="targetType"><see cref="Type"/> of the model.</param>
         /// <param name="collection">
-        /// Collection of values retrieved from value providers. Or <c>null</c> if nothing was bound.
+        /// Collection of values retrieved from value providers. <see langword="null"/> if nothing was bound.
         /// </param>
         /// <returns>
-        /// An <see cref="object"/> assignable to <paramref name="targetType"/>. Or <c>null</c> if nothing was bound.
+        /// An <see cref="object"/> assignable to <paramref name="targetType"/>. <see langword="null"/> if nothing
+        /// was bound.
         /// </returns>
         /// <remarks>
         /// Extensibility point that allows the bound collection to be manipulated or transformed before being
@@ -330,7 +377,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
         /// </summary>
         /// <param name="target"><see cref="object"/> into which values are copied.</param>
         /// <param name="sourceCollection">
-        /// Collection of values retrieved from value providers. Or <c>null</c> if nothing was bound.
+        /// Collection of values retrieved from value providers. <see langword="null"/> if nothing was bound.
         /// </param>
         protected virtual void CopyToModel(object target, IEnumerable<TElement> sourceCollection)
         {

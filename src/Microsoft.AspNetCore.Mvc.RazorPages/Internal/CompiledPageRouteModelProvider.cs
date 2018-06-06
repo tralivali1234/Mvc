@@ -7,109 +7,163 @@ using System.Linq;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Mvc.Razor.Compilation;
+using Microsoft.AspNetCore.Mvc.Razor.Extensions;
+using Microsoft.AspNetCore.Mvc.Razor.Internal;
 using Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure;
+using Microsoft.AspNetCore.Razor.Hosting;
+using Microsoft.AspNetCore.Razor.Language;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
 {
     public class CompiledPageRouteModelProvider : IPageRouteModelProvider
     {
-        private readonly object _cacheLock = new object();
         private readonly ApplicationPartManager _applicationManager;
         private readonly RazorPagesOptions _pagesOptions;
-        private List<PageRouteModel> _cachedModels;
+        private readonly RazorProjectEngine _razorProjectEngine;
+        private readonly ILogger<CompiledPageRouteModelProvider> _logger;
+        private readonly PageRouteModelFactory _routeModelFactory;
 
         public CompiledPageRouteModelProvider(
             ApplicationPartManager applicationManager,
-            IOptions<RazorPagesOptions> pagesOptionsAccessor)
+            IOptions<RazorPagesOptions> pagesOptionsAccessor,
+            RazorProjectEngine razorProjectEngine,
+            ILogger<CompiledPageRouteModelProvider> logger)
         {
-            _applicationManager = applicationManager;
-            _pagesOptions = pagesOptionsAccessor.Value;
+            _applicationManager = applicationManager ?? throw new ArgumentNullException(nameof(applicationManager));
+            _pagesOptions = pagesOptionsAccessor?.Value ?? throw new ArgumentNullException(nameof(pagesOptionsAccessor));
+            _razorProjectEngine = razorProjectEngine ?? throw new ArgumentNullException(nameof(razorProjectEngine));
+            _logger = logger ?? throw new ArgumentNullException(nameof(razorProjectEngine));
+            _routeModelFactory = new PageRouteModelFactory(_pagesOptions, _logger);
         }
 
         public int Order => -1000;
 
         public void OnProvidersExecuting(PageRouteModelProviderContext context)
         {
-            EnsureCache();
-            for (var i = 0; i < _cachedModels.Count; i++)
+            if (context == null)
             {
-                var pageModel = _cachedModels[i];
-                context.RouteModels.Add(new PageRouteModel(pageModel));
+                throw new ArgumentNullException(nameof(context));
             }
+
+            CreateModels(context);
         }
 
         public void OnProvidersExecuted(PageRouteModelProviderContext context)
         {
-        }
-
-        private void EnsureCache()
-        {
-            lock (_cacheLock)
+            if (context == null)
             {
-                if (_cachedModels != null)
-                {
-                    return;
-                }
-
-                var rootDirectory = _pagesOptions.RootDirectory;
-                if (!rootDirectory.EndsWith("/", StringComparison.Ordinal))
-                {
-                    rootDirectory = rootDirectory + "/";
-                }
-
-                var cachedApplicationModels = new List<PageRouteModel>();
-                foreach (var viewDescriptor in GetViewDescriptors(_applicationManager))
-                {
-                    if (!viewDescriptor.RelativePath.StartsWith(rootDirectory, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    var viewEnginePath = GetViewEnginePath(rootDirectory, viewDescriptor.RelativePath);
-                    var model = new PageRouteModel(viewDescriptor.RelativePath, viewEnginePath);
-                    var pageAttribute = (RazorPageAttribute)viewDescriptor.ViewAttribute;
-                    PageSelectorModel.PopulateDefaults(model, pageAttribute.RouteTemplate);
-
-                    cachedApplicationModels.Add(model);
-                }
-
-                _cachedModels = cachedApplicationModels;
+                throw new ArgumentNullException(nameof(context));
             }
         }
 
-        /// <summary>
-        /// Gets the sequence of <see cref="CompiledViewDescriptor"/> from <paramref name="applicationManager"/>.
-        /// </summary>
-        /// <param name="applicationManager">The <see cref="ApplicationPartManager"/>s</param>
-        /// <returns>The sequence of <see cref="CompiledViewDescriptor"/>.</returns>
-        protected virtual IEnumerable<CompiledViewDescriptor> GetViewDescriptors(ApplicationPartManager applicationManager)
+        private IEnumerable<CompiledViewDescriptor> GetViewDescriptors(ApplicationPartManager applicationManager)
         {
             if (applicationManager == null)
             {
                 throw new ArgumentNullException(nameof(applicationManager));
             }
 
-            var viewsFeature = new ViewsFeature();
-            applicationManager.PopulateFeature(viewsFeature);
+            var viewsFeature = GetViewFeature(applicationManager);
 
-            return viewsFeature.ViewDescriptors.Where(d => d.IsPrecompiled && d.ViewAttribute is RazorPageAttribute);
-        }
-
-        private string GetViewEnginePath(string rootDirectory, string path)
-        {
-            var endIndex = path.LastIndexOf('.');
-            if (endIndex == -1)
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var viewDescriptor in viewsFeature.ViewDescriptors)
             {
-                endIndex = path.Length;
+                if (!visited.Add(viewDescriptor.RelativePath))
+                {
+                    // Already seen an descriptor with a higher "order"
+                    continue;
+                }
+
+                if (!viewDescriptor.IsPrecompiled)
+                {
+                    continue;
+                }
+
+                if (IsRazorPage(viewDescriptor))
+                {
+                    yield return viewDescriptor;
+                }
             }
 
-            // rootDirectory = "/Pages/AllMyPages/"
-            // path = "/Pages/AllMyPages/Home.cshtml"
-            // Result = "/Home"
-            var startIndex = rootDirectory.Length - 1;
+            bool IsRazorPage(CompiledViewDescriptor viewDescriptor)
+            {
+                if (viewDescriptor.Item != null)
+                {
+                    return viewDescriptor.Item.Kind == RazorPageDocumentClassifierPass.RazorPageDocumentKind;
+                }
+                else if (viewDescriptor.ViewAttribute != null)
+                {
+                    return viewDescriptor.ViewAttribute is RazorPageAttribute;
+                }
 
-            return path.Substring(startIndex, endIndex - startIndex);
+                return false;
+            }
+        }
+
+        protected virtual ViewsFeature GetViewFeature(ApplicationPartManager applicationManager)
+        {
+            var viewsFeature = new ViewsFeature();
+            applicationManager.PopulateFeature(viewsFeature);
+            return viewsFeature;
+        }
+
+        private void CreateModels(PageRouteModelProviderContext context)
+        {
+            var rootDirectory = _pagesOptions.RootDirectory;
+            if (!rootDirectory.EndsWith("/", StringComparison.Ordinal))
+            {
+                rootDirectory = rootDirectory + "/";
+            }
+
+            var areaRootDirectory = "/Areas/";
+            foreach (var viewDescriptor in GetViewDescriptors(_applicationManager))
+            {
+                if (viewDescriptor.Item != null && !ChecksumValidator.IsItemValid(_razorProjectEngine.FileSystem, viewDescriptor.Item))
+                {
+                    // If we get here, this compiled Page has different local content, so ignore it.
+                    continue;
+                }
+
+                var relativePath = viewDescriptor.RelativePath;
+                var routeTemplate = GetRouteTemplate(viewDescriptor);
+                PageRouteModel routeModel = null;
+
+                // When RootDirectory and AreaRootDirectory overlap (e.g. RootDirectory = '/', AreaRootDirectory = '/Areas'), we
+                // only want to allow a page to be associated with the area route.
+                if (_pagesOptions.AllowAreas && relativePath.StartsWith(areaRootDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    routeModel = _routeModelFactory.CreateAreaRouteModel(relativePath, routeTemplate);
+                }
+                else if (relativePath.StartsWith(rootDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    routeModel = _routeModelFactory.CreateRouteModel(relativePath, routeTemplate);
+                }
+
+                if (routeModel != null)
+                {
+                    context.RouteModels.Add(routeModel);
+                }
+            }
+        }
+
+        internal static string GetRouteTemplate(CompiledViewDescriptor viewDescriptor)
+        {
+            if (viewDescriptor.ViewAttribute != null)
+            {
+                return ((RazorPageAttribute)viewDescriptor.ViewAttribute).RouteTemplate;
+            }
+
+            if (viewDescriptor.Item != null)
+            {
+                return viewDescriptor.Item.Metadata
+                    .OfType<RazorCompiledItemMetadataAttribute>()
+                    .FirstOrDefault(f => f.Key == RazorPageDocumentClassifierPass.RouteTemplateKey)
+                    ?.Value;
+            }
+
+            return null;
         }
     }
 }

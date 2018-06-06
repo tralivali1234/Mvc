@@ -16,7 +16,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
     {
         public InputFormatterTests(MvcTestFixture<FormatterWebSite.Startup> fixture)
         {
-            Client = fixture.Client;
+            Client = fixture.CreateDefaultClient();
         }
 
         public HttpClient Client { get; }
@@ -95,6 +95,21 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
 
             // Assert
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact] // This test covers the 2.0 behavior. JSON.Net error messages are not preserved.
+        public async Task JsonInputFormatter_SuppliedJsonDeserializationErrorMessage()
+        {
+            // Arrange
+            var content = new StringContent("{", Encoding.UTF8, "application/json");
+
+            // Act
+            var response = await Client.PostAsync("http://localhost/JsonFormatter/ReturnInput/", content);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            // Assert
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("{\"\":[\"Unexpected end when reading JSON. Path '', line 1, position 1.\"]}", responseBody);
         }
 
         [Theory]

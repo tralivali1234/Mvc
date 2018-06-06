@@ -2,11 +2,9 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.Linq;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
-using Microsoft.AspNetCore.Mvc.Razor;
-using Microsoft.AspNetCore.Mvc.Razor.Internal;
-using Microsoft.AspNetCore.Razor.Language;
 using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
@@ -66,6 +64,107 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure
             Assert.Equal("/Test.cshtml", descriptor.RelativePath);
             Assert.Equal("/Test", descriptor.RouteValues["page"]);
             Assert.Equal("/Test/{id:int?}", descriptor.AttributeRouteInfo.Template);
+        }
+
+        [Fact]
+        public void GetDescriptors_AddsDescriptorsForAreaPages()
+        {
+            // Arrange
+            var model = new PageRouteModel("/Test.cshtml", "/Test")
+            {
+                RouteValues =
+                {
+                    { "custom-key", "custom-value" },
+                },
+                Selectors =
+                {
+                    new SelectorModel
+                    {
+                        AttributeRouteModel = new AttributeRouteModel
+                        {
+                            Template = "/Test/{id:int?}",
+                        }
+                    }
+                }
+            };
+            var applicationModelProvider = new TestPageRouteModelProvider(model);
+            var provider = new PageActionDescriptorProvider(
+                new[] { applicationModelProvider },
+                GetAccessor<MvcOptions>(),
+                GetRazorPagesOptions());
+            var context = new ActionDescriptorProviderContext();
+
+            // Act
+            provider.OnProvidersExecuting(context);
+
+            // Assert
+            var result = Assert.Single(context.Results);
+            var descriptor = Assert.IsType<PageActionDescriptor>(result);
+            Assert.Equal(model.RelativePath, descriptor.RelativePath);
+            Assert.Collection(
+                descriptor.RouteValues.OrderBy(kvp => kvp.Key),
+                kvp =>
+                {
+                    Assert.Equal("custom-key", kvp.Key);
+                    Assert.Equal("custom-value", kvp.Value);
+                },
+                kvp =>
+                {
+                    Assert.Equal("page", kvp.Key);
+                    Assert.Equal("/Test", kvp.Value);
+                });
+        }
+
+        [Fact]
+        public void GetDescriptors_CopiesRouteValuesFromModel()
+        {
+            // Arrange
+            var model = new PageRouteModel("/Areas/Accounts/Pages/Test.cshtml", "/Test", "Accounts")
+            {
+                RouteValues =
+                {
+                    { "page", "/Test" },
+                    { "area", "Accounts" },
+                },
+                Selectors =
+                {
+                    new SelectorModel
+                    {
+                        AttributeRouteModel = new AttributeRouteModel
+                        {
+                            Template = "Accounts/Test/{id:int?}",
+                        }
+                    }
+                }
+            };
+            var applicationModelProvider = new TestPageRouteModelProvider(model);
+            var provider = new PageActionDescriptorProvider(
+                new[] { applicationModelProvider },
+                GetAccessor<MvcOptions>(),
+                GetRazorPagesOptions());
+            var context = new ActionDescriptorProviderContext();
+
+            // Act
+            provider.OnProvidersExecuting(context);
+
+            // Assert
+            var result = Assert.Single(context.Results);
+            var descriptor = Assert.IsType<PageActionDescriptor>(result);
+            Assert.Equal(model.RelativePath, descriptor.RelativePath);
+            Assert.Collection(
+                descriptor.RouteValues.OrderBy(kvp => kvp.Key),
+                kvp =>
+                {
+                    Assert.Equal("area", kvp.Key);
+                    Assert.Equal("Accounts", kvp.Value);
+                },
+                kvp =>
+                {
+                    Assert.Equal("page", kvp.Key);
+                    Assert.Equal("/Test", kvp.Value);
+                });
+            Assert.Equal("Accounts", descriptor.AreaName);
+            Assert.Equal("Accounts/Test/{id:int?}", descriptor.AttributeRouteInfo.Template);
         }
 
         [Fact]
@@ -204,17 +303,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure
 
         private static IOptions<RazorPagesOptions> GetRazorPagesOptions()
         {
-            return new TestOptionsManager<RazorPagesOptions>();
-        }
-
-        private static RazorProjectItem GetProjectItem(string basePath, string path, string content)
-        {
-            var testFileInfo = new TestFileInfo
-            {
-                Content = content,
-            };
-
-            return new FileProviderRazorProjectItem(testFileInfo, basePath, path);
+            return Options.Create(new RazorPagesOptions());
         }
 
         private class TestPageRouteModelProvider : IPageRouteModelProvider

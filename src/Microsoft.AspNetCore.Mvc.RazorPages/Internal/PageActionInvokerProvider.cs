@@ -6,7 +6,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
@@ -29,6 +28,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
         private readonly IPageLoader _loader;
         private readonly IPageFactoryProvider _pageFactoryProvider;
         private readonly IPageModelFactoryProvider _modelFactoryProvider;
+        private readonly IModelBinderFactory _modelBinderFactory;
         private readonly IRazorPageFactoryProvider _razorPageFactoryProvider;
         private readonly IActionDescriptorCollectionProvider _collectionProvider;
         private readonly IFilterProvider[] _filterProviders;
@@ -36,11 +36,13 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
         private readonly ParameterBinder _parameterBinder;
         private readonly IModelMetadataProvider _modelMetadataProvider;
         private readonly ITempDataDictionaryFactory _tempDataFactory;
+        private readonly MvcOptions _mvcOptions;
         private readonly HtmlHelperOptions _htmlHelperOptions;
         private readonly IPageHandlerMethodSelector _selector;
-        private readonly RazorProject _razorProject;
+        private readonly RazorProjectFileSystem _razorFileSystem;
         private readonly DiagnosticSource _diagnosticSource;
         private readonly ILogger<PageActionInvoker> _logger;
+        private readonly IActionResultTypeMapper _mapper;
         private volatile InnerCache _currentCache;
 
         public PageActionInvokerProvider(
@@ -52,17 +54,20 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
             IEnumerable<IFilterProvider> filterProviders,
             ParameterBinder parameterBinder,
             IModelMetadataProvider modelMetadataProvider,
+            IModelBinderFactory modelBinderFactory,
             ITempDataDictionaryFactory tempDataFactory,
             IOptions<MvcOptions> mvcOptions,
             IOptions<HtmlHelperOptions> htmlHelperOptions,
             IPageHandlerMethodSelector selector,
-            RazorProject razorProject,
+            RazorProjectFileSystem razorFileSystem,
             DiagnosticSource diagnosticSource,
-            ILoggerFactory loggerFactory)
+            ILoggerFactory loggerFactory,
+            IActionResultTypeMapper mapper)
         {
             _loader = loader;
             _pageFactoryProvider = pageFactoryProvider;
             _modelFactoryProvider = modelFactoryProvider;
+            _modelBinderFactory = modelBinderFactory;
             _razorPageFactoryProvider = razorPageFactoryProvider;
             _collectionProvider = collectionProvider;
             _filterProviders = filterProviders.ToArray();
@@ -70,11 +75,13 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
             _parameterBinder = parameterBinder;
             _modelMetadataProvider = modelMetadataProvider;
             _tempDataFactory = tempDataFactory;
+            _mvcOptions = mvcOptions.Value;
             _htmlHelperOptions = htmlHelperOptions.Value;
             _selector = selector;
-            _razorProject = razorProject;
+            _razorFileSystem = razorFileSystem;
             _diagnosticSource = diagnosticSource;
             _logger = loggerFactory.CreateLogger<PageActionInvoker>();
+            _mapper = mapper;
         }
 
         public int Order { get; } = -1000;
@@ -154,6 +161,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 _selector,
                 _diagnosticSource,
                 _logger,
+                _mapper,
                 pageContext,
                 filters,
                 cacheEntry,
@@ -168,13 +176,14 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
         {
             var compiledActionDescriptor = (CompiledPageActionDescriptor)context.ActionContext.ActionDescriptor;
 
-            var viewDataFactory = ViewDataDictionaryFactory.CreateFactory(compiledActionDescriptor.ModelTypeInfo);
+            var viewDataFactory = ViewDataDictionaryFactory.CreateFactory(compiledActionDescriptor.DeclaredModelTypeInfo);
 
             var pageFactory = _pageFactoryProvider.CreatePageFactory(compiledActionDescriptor);
             var pageDisposer = _pageFactoryProvider.CreatePageDisposer(compiledActionDescriptor);
-            var propertyBinder = PagePropertyBinderFactory.CreateBinder(
+            var propertyBinder = PageBinderFactory.CreatePropertyBinder(
                 _parameterBinder,
                 _modelMetadataProvider,
+                _modelBinderFactory,
                 compiledActionDescriptor);
 
             Func<PageContext, object> modelFactory = null;
@@ -187,7 +196,8 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
 
             var viewStartFactories = GetViewStartFactories(compiledActionDescriptor);
 
-            var executors = GetExecutors(compiledActionDescriptor);
+            var handlerExecutors = GetHandlerExecutors(compiledActionDescriptor);
+            var handlerBinders = GetHandlerBinders(compiledActionDescriptor);
 
             return new PageActionInvokerCacheEntry(
                 compiledActionDescriptor,
@@ -197,7 +207,8 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 modelFactory,
                 modelReleaser,
                 propertyBinder,
-                executors,
+                handlerExecutors,
+                handlerBinders,
                 viewStartFactories,
                 cachedFilters);
         }
@@ -207,7 +218,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
         {
             var viewStartFactories = new List<Func<IRazorPage>>();
             // Always pick up all _ViewStarts, including the ones outside the Pages root.
-            var viewStartItems = _razorProject.FindHierarchicalItems(
+            var viewStartItems = _razorFileSystem.FindHierarchicalItems(
                 descriptor.RelativePath,
                 ViewStartFileName);
             foreach (var item in viewStartItems)
@@ -222,18 +233,41 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
             return viewStartFactories;
         }
 
-        private static Func<object, object[], Task<IActionResult>>[] GetExecutors(CompiledPageActionDescriptor actionDescriptor)
+        private static PageHandlerExecutorDelegate[] GetHandlerExecutors(CompiledPageActionDescriptor actionDescriptor)
         {
             if (actionDescriptor.HandlerMethods == null || actionDescriptor.HandlerMethods.Count == 0)
             {
-                return Array.Empty<Func<object, object[], Task<IActionResult>>>();
+                return Array.Empty<PageHandlerExecutorDelegate>();
             }
 
-            var results = new Func<object, object[], Task<IActionResult>>[actionDescriptor.HandlerMethods.Count];
+            var results = new PageHandlerExecutorDelegate[actionDescriptor.HandlerMethods.Count];
 
             for (var i = 0; i < actionDescriptor.HandlerMethods.Count; i++)
             {
                 results[i] = ExecutorFactory.CreateExecutor(actionDescriptor.HandlerMethods[i]);
+            }
+
+            return results;
+        }
+
+        private PageHandlerBinderDelegate[] GetHandlerBinders(CompiledPageActionDescriptor actionDescriptor)
+        {
+            if (actionDescriptor.HandlerMethods == null ||actionDescriptor.HandlerMethods.Count == 0)
+            {
+                return Array.Empty<PageHandlerBinderDelegate>();
+            }
+
+            var results = new PageHandlerBinderDelegate[actionDescriptor.HandlerMethods.Count];
+
+            for (var i = 0; i < actionDescriptor.HandlerMethods.Count; i++)
+            {
+                results[i] = PageBinderFactory.CreateHandlerBinder(
+                    _parameterBinder,
+                    _modelMetadataProvider,
+                    _modelBinderFactory,
+                    actionDescriptor,
+                    actionDescriptor.HandlerMethods[i],
+                    _mvcOptions);
             }
 
             return results;

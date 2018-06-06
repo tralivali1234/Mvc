@@ -14,10 +14,11 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
 {
     public class RazorViewCompilerProvider : IViewCompilerProvider
     {
-        private readonly RazorTemplateEngine _razorTemplateEngine;
+        private readonly RazorProjectEngine _razorProjectEngine;
         private readonly ApplicationPartManager _applicationPartManager;
         private readonly IRazorViewEngineFileProviderAccessor _fileProviderAccessor;
         private readonly CSharpCompiler _csharpCompiler;
+        private readonly IViewCompilationMemoryCacheProvider _compilationMemoryCacheProvider;
         private readonly RazorViewEngineOptions _viewEngineOptions;
         private readonly ILogger<RazorViewCompiler> _logger;
         private readonly Func<IViewCompiler> _createCompiler;
@@ -28,16 +29,18 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
 
         public RazorViewCompilerProvider(
             ApplicationPartManager applicationPartManager,
-            RazorTemplateEngine razorTemplateEngine,
+            RazorProjectEngine razorProjectEngine,
             IRazorViewEngineFileProviderAccessor fileProviderAccessor,
             CSharpCompiler csharpCompiler,
             IOptions<RazorViewEngineOptions> viewEngineOptionsAccessor,
+            IViewCompilationMemoryCacheProvider compilationMemoryCacheProvider,
             ILoggerFactory loggerFactory)
         {
             _applicationPartManager = applicationPartManager;
-            _razorTemplateEngine = razorTemplateEngine;
+            _razorProjectEngine = razorProjectEngine;
             _fileProviderAccessor = fileProviderAccessor;
             _csharpCompiler = csharpCompiler;
+            _compilationMemoryCacheProvider = compilationMemoryCacheProvider;
             _viewEngineOptions = viewEngineOptionsAccessor.Value;
 
             _logger = loggerFactory.CreateLogger<RazorViewCompiler>();
@@ -70,10 +73,11 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
 
             return new RazorViewCompiler(
                 _fileProviderAccessor.FileProvider,
-                _razorTemplateEngine,
+                _razorProjectEngine,
                 _csharpCompiler,
                 _viewEngineOptions.CompilationCallback,
                 feature.ViewDescriptors,
+                _compilationMemoryCacheProvider.CompilationMemoryCache,
                 _logger);
         }
     }

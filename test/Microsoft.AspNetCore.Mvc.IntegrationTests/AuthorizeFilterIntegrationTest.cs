@@ -13,9 +13,13 @@ using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Internal;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.ObjectPool;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Mvc.IntegrationTests
@@ -29,13 +33,9 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
         public async Task AuthorizeFilter_CalledTwiceWithNonDefaultProvider()
         {
             // Arrange
-            var applicationModelProviderContext = new ApplicationModelProviderContext(
-                new[] { typeof(AuthorizeController).GetTypeInfo() });
+            var applicationModelProviderContext = GetProviderContext(typeof(AuthorizeController));
 
             var policyProvider = new TestAuthorizationPolicyProvider();
-            var defaultProvider = new DefaultApplicationModelProvider(new TestOptionsManager<MvcOptions>());
-
-            defaultProvider.OnProvidersExecuting(applicationModelProviderContext);
 
             var controller = Assert.Single(applicationModelProviderContext.Result.Controllers);
             var action = Assert.Single(controller.Actions);
@@ -62,15 +62,26 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             return httpContext;
         }
 
+        private static ApplicationModelProviderContext GetProviderContext(Type controllerType)
+        {
+            var context = new ApplicationModelProviderContext(new[] { controllerType.GetTypeInfo() });
+            var provider = new DefaultApplicationModelProvider(
+                Options.Create(new MvcOptions()),
+                TestModelMetadataProvider.CreateDefaultProvider());
+            provider.OnProvidersExecuting(context);
+
+            return context;
+        }
+
         private static IServiceProvider GetServices()
         {
             var serviceCollection = new ServiceCollection();
             serviceCollection.AddAuthorization();
             serviceCollection.AddMvc();
             serviceCollection
-                .AddTransient<ILoggerFactory, LoggerFactory>()
-                .AddTransient<ILogger<DefaultAuthorizationService>, Logger<DefaultAuthorizationService>>();
-
+                .AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance)
+                .AddTransient<ILogger<DefaultAuthorizationService>, Logger<DefaultAuthorizationService>>()
+                .AddSingleton<ObjectPoolProvider, DefaultObjectPoolProvider>();
             return serviceCollection.BuildServiceProvider();
         }
 

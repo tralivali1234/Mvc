@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
@@ -25,7 +26,7 @@ using Microsoft.AspNetCore.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Logging.Testing;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
@@ -34,36 +35,6 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
     public class PageActionInvokerTest : CommonResourceInvokerTest
     {
         #region Diagnostics
-
-        [Fact]
-        public async Task Invoke_Success_LogsCorrectValues()
-        {
-            // Arrange
-            var sink = new TestSink();
-            var loggerFactory = new TestLoggerFactory(sink, enabled: true);
-            var logger = loggerFactory.CreateLogger<PageActionInvoker>();
-
-            var actionDescriptor = CreateDescriptorForSimplePage();
-
-            var displayName = "/A/B/C";
-            actionDescriptor.DisplayName = displayName;
-
-            var invoker = CreateInvoker(filters: null, actionDescriptor: actionDescriptor, logger: logger);
-
-            // Act
-            await invoker.InvokeAsync();
-
-            // Assert
-            Assert.Single(sink.Scopes);
-            Assert.Equal(displayName, sink.Scopes[0].Scope?.ToString());
-
-            Assert.Equal(4, sink.Writes.Count);
-            Assert.Equal($"Executing action {displayName}", sink.Writes[0].State?.ToString());
-            Assert.Equal($"Executing handler method OnGetHandler1 with arguments ((null)) - ModelState is Valid", sink.Writes[1].State?.ToString());
-            Assert.Equal($"Executed handler method OnGetHandler1, returned result {typeof(PageResult).FullName}.", sink.Writes[2].State?.ToString());
-            // This message has the execution time embedded, which we don't want to verify.
-            Assert.StartsWith($"Executed action {displayName} ", sink.Writes[3].State?.ToString());
-        }
 
         [Fact]
         public async Task Invoke_WritesDiagnostic_ActionSelected()
@@ -132,8 +103,10 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                     resourceExecutingContext.ValueProviderFactories.Add(valueProviderFactory2);
                 });
             var valueProviderFactory1 = Mock.Of<IValueProviderFactory>();
-            var valueProviderFactories = new List<IValueProviderFactory>();
-            valueProviderFactories.Add(valueProviderFactory1);
+            var valueProviderFactories = new List<IValueProviderFactory>
+            {
+                valueProviderFactory1
+            };
 
             var invoker = CreateInvoker(
                 new IFilterMetadata[] { resourceFilter.Object }, valueProviderFactories: valueProviderFactories);
@@ -163,9 +136,11 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
 
             var valueProviderFactory1 = Mock.Of<IValueProviderFactory>();
             var valueProviderFactory2 = Mock.Of<IValueProviderFactory>();
-            var valueProviderFactories = new List<IValueProviderFactory>();
-            valueProviderFactories.Add(valueProviderFactory1);
-            valueProviderFactories.Add(valueProviderFactory2);
+            var valueProviderFactories = new List<IValueProviderFactory>
+            {
+                valueProviderFactory1,
+                valueProviderFactory2
+            };
 
             var invoker = CreateInvoker(
                 new IFilterMetadata[] { resourceFilter.Object }, valueProviderFactories: valueProviderFactories);
@@ -356,6 +331,32 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
             Assert.Same(pageModel.PageContext.ViewData, pageResult.ViewData);
         }
 
+        [Fact]
+        public async Task InvokeAction_WithPage_SetsExecutingFilePath()
+        {
+            // Arrange
+            var relativePath = "/Pages/Users/Show.cshtml";
+            var descriptor = CreateDescriptorForSimplePage();
+            descriptor.RelativePath = relativePath;
+
+            object instance = null;
+            var pageFilter = new Mock<IPageFilter>();
+            AllowSelector(pageFilter);
+            pageFilter
+                .Setup(f => f.OnPageHandlerExecuting(It.IsAny<PageHandlerExecutingContext>()))
+                .Callback<PageHandlerExecutingContext>(c =>
+                {
+                    instance = c.HandlerInstance;
+                });
+            var invoker = CreateInvoker(new[] { pageFilter.Object }, descriptor);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            var page = Assert.IsType<TestPage>(instance);
+            Assert.Equal(relativePath, page.ViewContext.ExecutingFilePath);
+        }
         #endregion
 
         #region Handler Selection
@@ -431,7 +432,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 .Verifiable();
             filter1
                 .Setup(f => f.OnPageHandlerExecutionAsync(It.IsAny<PageHandlerExecutingContext>(), It.IsAny<PageHandlerExecutionDelegate>()))
-                .Returns<PageHandlerExecutingContext, PageHandlerExecutionDelegate>(async(c, next) =>
+                .Returns<PageHandlerExecutingContext, PageHandlerExecutionDelegate>(async (c, next) =>
                 {
                     Assert.Same(handler, c.HandlerMethod);
                     await next();
@@ -471,6 +472,33 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
         #endregion
 
         #region Page Filters
+
+        [Fact]
+        public async Task ViewDataIsSet_AfterHandlerMethodIsExecuted()
+        {
+            // Arrange
+            var pageHandlerExecutedCalled = false;
+            var pageFilter = new Mock<IPageFilter>();
+            AllowSelector(pageFilter);
+            pageFilter
+                .Setup(f => f.OnPageHandlerExecuted(It.IsAny<PageHandlerExecutedContext>()))
+                .Callback<PageHandlerExecutedContext>(c =>
+                {
+                    pageHandlerExecutedCalled = true;
+                    var result = c.Result;
+                    var pageResult = Assert.IsType<PageResult>(result);
+                    Assert.IsType<ViewDataDictionary<TestPage>>(pageResult.ViewData);
+                    Assert.IsType<TestPage>(pageResult.Model);
+                    Assert.Null(pageResult.Page);
+                });
+            var invoker = CreateInvoker(new IFilterMetadata[] { pageFilter.Object }, result: new PageResult());
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            Assert.True(pageHandlerExecutedCalled);
+        }
 
         [Fact]
         public async Task InvokeAction_InvokesPageFilter()
@@ -526,6 +554,284 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 Times.Once());
 
             Assert.Same(Result, result);
+        }
+
+        [Fact]
+        public async Task InvokeAction_PageResultSetAt_AsyncAuthorizeFilter_PopulatesProperties()
+        {
+            // Arrange
+            var expectedResult = new PageResult();
+
+            IActionResult result = null;
+            var filter = new Mock<IAsyncAuthorizationFilter>(MockBehavior.Strict);
+            filter
+                .Setup(f => f.OnAuthorizationAsync(It.IsAny<AuthorizationFilterContext>()))
+                .Returns<AuthorizationFilterContext>((context) =>
+                {
+                    context.Result = expectedResult;
+                    result = context.Result;
+                    return Task.CompletedTask;
+                })
+                .Verifiable();
+
+            var invoker = CreateInvoker(filter.Object);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter.Verify(
+                f => f.OnAuthorizationAsync(It.IsAny<AuthorizationFilterContext>()),
+                Times.Once());
+
+            var pageResult = Assert.IsType<PageResult>(result);
+            Assert.Same(expectedResult, pageResult);
+            Assert.NotNull(pageResult.Page);
+            Assert.NotNull(pageResult.ViewData);
+            Assert.NotNull(pageResult.Page.ViewContext);
+        }
+
+        [Fact]
+        public async Task InvokeAction_PageResultSetAt_SyncAuthorizeFilter_PopulatesProperties()
+        {
+            // Arrange
+            var expectedResult = new PageResult();
+
+            IActionResult result = null;
+            var filter = new Mock<IAuthorizationFilter>(MockBehavior.Strict);
+            filter
+                .Setup(f => f.OnAuthorization(It.IsAny<AuthorizationFilterContext>()))
+                .Callback<AuthorizationFilterContext>((context) =>
+                {
+                    context.Result = expectedResult;
+                    result = context.Result;
+                })
+                .Verifiable();
+
+            var invoker = CreateInvoker(filter.Object);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter.Verify(
+                f => f.OnAuthorization(It.IsAny<AuthorizationFilterContext>()),
+                Times.Once());
+
+            var pageResult = Assert.IsType<PageResult>(result);
+            Assert.Same(expectedResult, pageResult);
+            Assert.NotNull(pageResult.Page);
+            Assert.NotNull(pageResult.ViewData);
+            Assert.NotNull(pageResult.Page.ViewContext);
+        }
+
+        [Fact]
+        public async Task InvokeAction_PageResultSetAt_AsyncResourceFilter_PopulatesProperties()
+        {
+            // Arrange
+            var expectedResult = new PageResult();
+
+            IActionResult result = null;
+            var filter = new Mock<IAsyncResourceFilter>(MockBehavior.Strict);
+            filter
+                .Setup(f => f.OnResourceExecutionAsync(It.IsAny<ResourceExecutingContext>(), It.IsAny<ResourceExecutionDelegate>()))
+                .Returns<ResourceExecutingContext, ResourceExecutionDelegate>((context, next) =>
+                {
+                    context.Result = expectedResult;
+                    result = context.Result;
+                    return Task.CompletedTask;
+                })
+                .Verifiable();
+
+            var invoker = CreateInvoker(filter.Object);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter.Verify(
+                f => f.OnResourceExecutionAsync(It.IsAny<ResourceExecutingContext>(), It.IsAny<ResourceExecutionDelegate>()),
+                Times.Once());
+
+            var pageResult = Assert.IsType<PageResult>(result);
+            Assert.Same(expectedResult, pageResult);
+            Assert.NotNull(pageResult.Page);
+            Assert.NotNull(pageResult.ViewData);
+            Assert.NotNull(pageResult.Page.ViewContext);
+        }
+
+        [Fact]
+        public async Task InvokeAction_PageResultSetAt_SyncResourceFilter_PopulatesProperties()
+        {
+            // Arrange
+            var expectedResult = new PageResult();
+
+            IActionResult result = null;
+            var filter = new Mock<IResourceFilter>(MockBehavior.Strict);
+            filter
+                .Setup(f => f.OnResourceExecuting(It.IsAny<ResourceExecutingContext>()))
+                .Callback<ResourceExecutingContext>((context) =>
+                {
+                    context.Result = expectedResult;
+                    result = context.Result;
+                })
+                .Verifiable();
+
+            var invoker = CreateInvoker(filter.Object);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter.Verify(
+                f => f.OnResourceExecuting(It.IsAny<ResourceExecutingContext>()),
+                Times.Once());
+
+            var pageResult = Assert.IsType<PageResult>(result);
+            Assert.Same(expectedResult, pageResult);
+            Assert.NotNull(pageResult.Page);
+            Assert.NotNull(pageResult.ViewData);
+            Assert.NotNull(pageResult.Page.ViewContext);
+        }
+
+        [Fact]
+        public async Task InvokeAction_PageResultSetAt_AsyncResultFilter_PopulatesProperties()
+        {
+            // Arrange
+            var expectedResult = new PageResult();
+
+            IActionResult result = null;
+            var filter = new Mock<IAsyncResultFilter>(MockBehavior.Strict);
+            filter
+                .Setup(f => f.OnResultExecutionAsync(It.IsAny<ResultExecutingContext>(), It.IsAny<ResultExecutionDelegate>()))
+                .Returns<ResultExecutingContext, ResultExecutionDelegate>((context, next) =>
+                {
+                    context.Result = expectedResult;
+                    result = context.Result;
+                    return next();
+                })
+                .Verifiable();
+
+            var invoker = CreateInvoker(filter.Object);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter.Verify(
+                f => f.OnResultExecutionAsync(It.IsAny<ResultExecutingContext>(), It.IsAny<ResultExecutionDelegate>()),
+                Times.Once());
+
+            var pageResult = Assert.IsType<PageResult>(result);
+            Assert.Same(expectedResult, pageResult);
+            Assert.NotNull(pageResult.Page);
+            Assert.NotNull(pageResult.ViewData);
+            Assert.NotNull(pageResult.Page.ViewContext);
+        }
+
+        [Fact]
+        public async Task InvokeAction_PageResultSetAt_SyncResultFilter_PopulatesProperties()
+        {
+            // Arrange
+            var expectedResult = new PageResult();
+
+            IActionResult result = null;
+            var filter = new Mock<IResultFilter>();
+            filter
+                .Setup(f => f.OnResultExecuting(It.IsAny<ResultExecutingContext>()))
+                .Callback<ResultExecutingContext>((context) =>
+                {
+                    context.Result = expectedResult;
+                    result = context.Result;
+                })
+                .Verifiable();
+
+            var invoker = CreateInvoker(filter.Object);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter.Verify(
+                f => f.OnResultExecuting(It.IsAny<ResultExecutingContext>()),
+                Times.Once());
+
+            var pageResult = Assert.IsType<PageResult>(result);
+            Assert.Same(expectedResult, pageResult);
+            Assert.NotNull(pageResult.Page);
+            Assert.NotNull(pageResult.ViewData);
+            Assert.NotNull(pageResult.Page.ViewContext);
+        }
+
+        [Fact]
+        public async Task InvokeAction_PageResultSetAt_AsyncPageFilter_PopulatesProperties()
+        {
+            // Arrange
+            var expectedResult = new PageResult();
+
+            IActionResult result = null;
+            var filter = new Mock<IAsyncPageFilter>(MockBehavior.Strict);
+            AllowSelector(filter);
+            filter
+                .Setup(f => f.OnPageHandlerExecutionAsync(It.IsAny<PageHandlerExecutingContext>(), It.IsAny<PageHandlerExecutionDelegate>()))
+                .Returns<PageHandlerExecutingContext, PageHandlerExecutionDelegate>((context, next) =>
+                {
+                    context.Result = expectedResult;
+                    result = context.Result;
+                    return Task.CompletedTask;
+                })
+                .Verifiable();
+
+            var invoker = CreateInvoker(filter.Object);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter.Verify(
+                f => f.OnPageHandlerExecutionAsync(It.IsAny<PageHandlerExecutingContext>(), It.IsAny<PageHandlerExecutionDelegate>()),
+                Times.Once());
+
+            var pageResult = Assert.IsType<PageResult>(result);
+            Assert.Same(expectedResult, pageResult);
+            Assert.NotNull(pageResult.Page);
+            Assert.NotNull(pageResult.ViewData);
+            Assert.NotNull(pageResult.Page.ViewContext);
+        }
+
+        [Fact]
+        public async Task InvokeAction_PageResultSetAt_SyncPageFilter_PopulatesProperties()
+        {
+            // Arrange
+            var expectedResult = new PageResult();
+
+            IActionResult result = null;
+            var filter = new Mock<IPageFilter>(MockBehavior.Strict);
+            AllowSelector(filter);
+            filter
+                .Setup(f => f.OnPageHandlerExecuting(It.IsAny<PageHandlerExecutingContext>()))
+                .Callback<PageHandlerExecutingContext>((context) =>
+                {
+                    context.Result = expectedResult;
+                    result = context.Result;
+                })
+                .Verifiable();
+
+            var invoker = CreateInvoker(filter.Object);
+
+            // Act
+            await invoker.InvokeAsync();
+
+            // Assert
+            filter.Verify(
+                f => f.OnPageHandlerExecuting(It.IsAny<PageHandlerExecutingContext>()),
+                Times.Once());
+
+            var pageResult = Assert.IsType<PageResult>(result);
+            Assert.Same(expectedResult, pageResult);
+            Assert.NotNull(pageResult.Page);
+            Assert.NotNull(pageResult.ViewData);
+            Assert.NotNull(pageResult.Page.ViewContext);
         }
 
         [Fact]
@@ -1102,7 +1408,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 BoundProperties = new List<ParameterDescriptor>(),
             };
 
-            var handlers = new List<Func<object, object[], Task<IActionResult>>>();
+            var handlers = new List<PageHandlerExecutorDelegate>();
             if (result != null)
             {
                 handlers.Add((obj, args) => Task.FromResult(result));
@@ -1135,7 +1441,8 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
             Func<PageContext, object> modelFactory = null,
             ITempDataDictionaryFactory tempDataFactory = null,
             IList<IValueProviderFactory> valueProviderFactories = null,
-            Func<object, object[], Task<IActionResult>>[] handlers = null,
+            PageHandlerExecutorDelegate[] handlers = null,
+            PageHandlerBinderDelegate[] handlerBinders = null,
             RouteData routeData = null,
             ILogger logger = null,
             TestDiagnosticListener listener = null)
@@ -1168,22 +1475,24 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 tempDataFactory = Mock.Of<ITempDataDictionaryFactory>(m => m.GetTempData(It.IsAny<HttpContext>()) == Mock.Of<ITempDataDictionary>());
             }
 
-            Func<PageContext, ViewContext, object> pageFactory = (context, viewContext) =>
+            object pageFactory(PageContext context, ViewContext viewContext)
             {
                 var instance = (Page)Activator.CreateInstance(actionDescriptor.PageTypeInfo.AsType());
                 instance.PageContext = context;
                 instance.ViewContext = viewContext;
                 return instance;
-            };
+            }
 
             if (handlers == null)
             {
-                handlers = new Func<object, object[], Task<IActionResult>>[actionDescriptor.HandlerMethods.Count];
+                handlers = new PageHandlerExecutorDelegate[actionDescriptor.HandlerMethods.Count];
                 for (var i = 0; i < handlers.Length; i++)
                 {
                     handlers[i] = (obj, args) => Task.FromResult<IActionResult>(new PageResult());
                 }
             }
+
+            handlerBinders = handlerBinders ?? Array.Empty<PageHandlerBinderDelegate>();
 
             if (modelFactory == null)
             {
@@ -1199,6 +1508,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 (c, model) => { (model as IDisposable)?.Dispose(); },
                 null,
                 handlers,
+                handlerBinders,
                 null,
                 new FilterItem[0]);
 
@@ -1212,6 +1522,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 selector.Object,
                 diagnosticListener ?? new DiagnosticListener("Microsoft.AspNetCore"),
                 logger ?? NullLogger.Instance,
+                new ActionResultTypeMapper(),
                 pageContext,
                 filters ?? Array.Empty<IFilterMetadata>(),
                 cacheEntry,
@@ -1223,11 +1534,11 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
 
         private static ParameterBinder GetParameterBinder(
             IModelBinderFactory factory = null,
-            IObjectModelValidator validator = null)
+            IModelValidatorProvider validator = null)
         {
             if (validator == null)
             {
-                validator = CreateMockValidator();
+                validator = CreateMockValidatorProvider();
             }
 
             if (factory == null)
@@ -1235,21 +1546,26 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 factory = TestModelBinderFactory.CreateDefault();
             }
 
+            var metadataProvider = TestModelMetadataProvider.CreateDefaultProvider();
+            var mvcOptions = new MvcOptions
+            {
+                AllowValidatingTopLevelNodes = true,
+            };
+
             return new ParameterBinder(
-                TestModelMetadataProvider.CreateDefaultProvider(),
+                metadataProvider,
                 factory,
-                validator);
+                new DefaultObjectValidator(metadataProvider, new[] { validator }),
+                Options.Create(mvcOptions),
+                NullLoggerFactory.Instance);
         }
 
-        private static IObjectModelValidator CreateMockValidator()
+        private static IModelValidatorProvider CreateMockValidatorProvider()
         {
-            var mockValidator = new Mock<IObjectModelValidator>(MockBehavior.Strict);
+            var mockValidator = new Mock<IModelValidatorProvider>(MockBehavior.Strict);
             mockValidator
-                .Setup(o => o.Validate(
-                    It.IsAny<ActionContext>(),
-                    It.IsAny<ValidationStateDictionary>(),
-                    It.IsAny<string>(),
-                    It.IsAny<object>()));
+                .Setup(o => o.CreateValidators(
+                    It.IsAny<ModelValidatorProviderContext>()));
             return mockValidator.Object;
         }
 

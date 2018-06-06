@@ -16,8 +16,21 @@ namespace Microsoft.AspNetCore.Mvc
         {
             Name = CookieTempDataProvider.CookieName,
             HttpOnly = true,
-            SameSite = SameSiteMode.Strict,
-            SecurePolicy = CookieSecurePolicy.SameAsRequest,
+
+            // Check the comment on CookieBuilder below for more details
+            SameSite = SameSiteMode.Lax,
+
+            // This cookie has been marked as non-essential because a user could use the SessionStateTempDataProvider,
+            // which is more common in production scenarios. Check the comment on CookieBuilder below
+            // for more information.
+            IsEssential = false,
+
+            // Some browsers do not allow non-secure endpoints to set cookies with a 'secure' flag or overwrite cookies
+            // whose 'secure' flag is set (http://httpwg.org/http-extensions/draft-ietf-httpbis-cookie-alone.html).
+            // Since mixing secure and non-secure endpoints is a common scenario in applications, we are relaxing the
+            // restriction on secure policy on some cookies by setting to 'None'. Cookies related to authentication or
+            // authorization use a stronger policy than 'None'.
+            SecurePolicy = CookieSecurePolicy.None,
         };
 
         /// <summary>
@@ -25,9 +38,15 @@ namespace Microsoft.AspNetCore.Mvc
         /// Determines the settings used to create the cookie in <see cref="CookieTempDataProvider"/>.
         /// </para>
         /// <para>
-        /// <see cref="CookieBuilder.SameSite"/> defaults to <see cref="SameSiteMode.Strict"/>.
+        /// <see cref="CookieBuilder.SameSite"/> defaults to <see cref="SameSiteMode.Lax"/>. Setting this to
+        /// <see cref="SameSiteMode.Strict"/> may cause browsers to not send back the cookie to the server in an
+        /// OAuth login flow.
         /// <see cref="CookieBuilder.SecurePolicy"/> defaults to <see cref="CookieSecurePolicy.SameAsRequest" />.
-        /// <see cref="CookieBuilder.HttpOnly"/> defaults to <c>true</c>
+        /// <see cref="CookieBuilder.HttpOnly"/> defaults to <c>true</c>.
+        /// <see cref="CookieBuilder.IsEssential"/> defaults to <c>false</c>, This property is only considered when a
+        /// user opts into the CookiePolicyMiddleware. If you are using this middleware and want to use
+        /// <see cref="CookieTempDataProvider"/>, then either set this property to <c>true</c> or
+        /// request user consent for non-essential cookies.
         /// </para>
         /// </summary>
         public CookieBuilder Cookie

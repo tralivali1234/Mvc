@@ -43,7 +43,9 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
             IHtmlGenerator htmlGenerator,
             ICompositeViewEngine viewEngine,
             IModelMetadataProvider metadataProvider,
+#pragma warning disable PUB0001 // Pubternal type in public API
             IViewBufferScope bufferScope,
+#pragma warning restore PUB0001
             HtmlEncoder htmlEncoder,
             UrlEncoder urlEncoder)
         {
@@ -160,8 +162,7 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
         /// </remarks>
         public static IDictionary<string, object> AnonymousObjectToHtmlAttributes(object htmlAttributes)
         {
-            var dictionary = htmlAttributes as IDictionary<string, object>;
-            if (dictionary != null)
+            if (htmlAttributes is IDictionary<string, object> dictionary)
             {
                 return new Dictionary<string, object>(dictionary, StringComparer.OrdinalIgnoreCase);
             }
@@ -586,7 +587,7 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
         /// <inheritdoc />
         public IHtmlContent Raw(object value)
         {
-            return new HtmlString(value == null ? null : value.ToString());
+            return new HtmlString(value?.ToString());
         }
 
         /// <inheritdoc />
@@ -685,7 +686,11 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
         /// <inheritdoc />
         public IHtmlContent TextBox(string expression, object value, string format, object htmlAttributes)
         {
-            return GenerateTextBox(modelExplorer: null, expression: expression, value: value, format: format,
+            return GenerateTextBox(
+                modelExplorer: null,
+                expression: expression,
+                value: value,
+                format: format,
                 htmlAttributes: htmlAttributes);
         }
 
@@ -722,6 +727,15 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
             if (checkbox == null || hiddenForCheckbox == null)
             {
                 return HtmlString.Empty;
+            }
+
+            if (!hiddenForCheckbox.Attributes.ContainsKey("name") &&
+                checkbox.Attributes.TryGetValue("name", out var name))
+            {
+                // The checkbox and hidden elements should have the same name attribute value. Attributes will match
+                // if both are present because both have a generated value. Reach here in the special case where user
+                // provided a non-empty fallback name.
+                hiddenForCheckbox.MergeAttribute("name", name);
             }
 
             if (ViewContext.FormContext.CanRenderAtEndOfForm)
@@ -861,7 +875,7 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
                 tagBuilder.WriteTo(ViewContext.Writer, _htmlEncoder);
             }
 
-            var shouldGenerateAntiforgery = antiforgery.HasValue ? antiforgery.Value : method != FormMethod.Get;
+            var shouldGenerateAntiforgery = antiforgery ?? method != FormMethod.Get;
             if (shouldGenerateAntiforgery)
             {
                 ViewContext.FormContext.EndOfFormContent.Add(_htmlGenerator.GenerateAntiforgery(ViewContext));
@@ -917,7 +931,7 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
                 tagBuilder.WriteTo(ViewContext.Writer, _htmlEncoder);
             }
 
-            var shouldGenerateAntiforgery = antiforgery.HasValue ? antiforgery.Value : method != FormMethod.Get;
+            var shouldGenerateAntiforgery = antiforgery ?? method != FormMethod.Get;
             if (shouldGenerateAntiforgery)
             {
                 ViewContext.FormContext.EndOfFormContent.Add(_htmlGenerator.GenerateAntiforgery(ViewContext));
@@ -969,12 +983,31 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
             var tagBuilder = _htmlGenerator.GenerateLabel(
                 ViewContext,
                 modelExplorer,
-                expression: expression,
-                labelText: labelText,
-                htmlAttributes: htmlAttributes);
+                expression,
+                labelText,
+                htmlAttributes);
             if (tagBuilder == null)
             {
                 return HtmlString.Empty;
+            }
+
+            // Do not generate an empty <label> element unless user passed string.Empty for the label text. This is
+            // primarily done for back-compatibility. (Note HtmlContentBuilder ignores (no-ops) an attempt to add
+            // string.Empty. So tagBuilder.HasInnerHtml isn't sufficient here.)
+            if (!tagBuilder.HasInnerHtml && labelText == null)
+            {
+                if (tagBuilder.Attributes.Count == 0)
+                {
+                    // Element has no content and no attributes.
+                    return HtmlString.Empty;
+                }
+                else if (tagBuilder.Attributes.Count == 1 &&
+                    tagBuilder.Attributes.TryGetValue("for", out var forAttribute) &&
+                    string.IsNullOrEmpty(forAttribute))
+                {
+                    // Element has no content and only an empty (therefore useless) "for" attribute.
+                    return HtmlString.Empty;
+                }
             }
 
             return tagBuilder;

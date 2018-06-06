@@ -364,6 +364,34 @@ namespace Microsoft.AspNetCore.Mvc.Razor
         internal static string FormatRazorViewCompiler_ViewPathsDifferOnlyInCase()
             => GetString("RazorViewCompiler_ViewPathsDifferOnlyInCase");
 
+        /// <summary>
+        /// The debug type specified in the dependency context could be parsed. The debug type value '{0}' is not supported.
+        /// </summary>
+        internal static string UnsupportedDebugInformationFormat
+        {
+            get => GetString("UnsupportedDebugInformationFormat");
+        }
+
+        /// <summary>
+        /// The debug type specified in the dependency context could be parsed. The debug type value '{0}' is not supported.
+        /// </summary>
+        internal static string FormatUnsupportedDebugInformationFormat(object p0)
+            => string.Format(CultureInfo.CurrentCulture, GetString("UnsupportedDebugInformationFormat"), p0);
+
+        /// <summary>
+        /// At least one of the '{0}' or '{1}' values must be non-null.
+        /// </summary>
+        internal static string CompiledViewDescriptor_NoData
+        {
+            get => GetString("CompiledViewDescriptor_NoData");
+        }
+
+        /// <summary>
+        /// At least one of the '{0}' or '{1}' values must be non-null.
+        /// </summary>
+        internal static string FormatCompiledViewDescriptor_NoData(object p0, object p1)
+            => string.Format(CultureInfo.CurrentCulture, GetString("CompiledViewDescriptor_NoData"), p0, p1);
+
         private static string GetString(string name, params string[] formatterNames)
         {
             var value = _resourceManager.GetString(name);

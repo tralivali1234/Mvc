@@ -13,10 +13,18 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
 {
     internal static class PageLoggerExtensions
     {
+        public const string PageFilter = "Page Filter";
+
         private static readonly Action<ILogger, string, string[], ModelValidationState, Exception> _handlerMethodExecuting;
+        private static readonly Action<ILogger, ModelValidationState, Exception> _implicitHandlerMethodExecuting;
         private static readonly Action<ILogger, string, string, Exception> _handlerMethodExecuted;
+        private static readonly Action<ILogger, string, Exception> _implicitHandlerMethodExecuted;
         private static readonly Action<ILogger, object, Exception> _pageFilterShortCircuit;
         private static readonly Action<ILogger, string, string[], Exception> _malformedPageDirective;
+        private static readonly Action<ILogger, string, Exception> _unsupportedAreaPath;
+        private static readonly Action<ILogger, Type, Exception> _notMostEffectiveFilter;
+        private static readonly Action<ILogger, string, string, string, Exception> _beforeExecutingMethodOnFilter;
+        private static readonly Action<ILogger, string, string, string, Exception> _afterExecutingMethodOnFilter;
 
         static PageLoggerExtensions()
         {
@@ -28,9 +36,19 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 "Executing handler method {HandlerName} with arguments ({Arguments}) - ModelState is {ValidationState}");
 
             _handlerMethodExecuted = LoggerMessage.Define<string, string>(
-                LogLevel.Debug,
+                LogLevel.Information,
                 102,
                 "Executed handler method {HandlerName}, returned result {ActionResult}.");
+
+            _implicitHandlerMethodExecuting = LoggerMessage.Define<ModelValidationState>(
+                LogLevel.Information,
+                103,
+                "Executing an implicit handler method - ModelState is {ValidationState}");
+
+            _implicitHandlerMethodExecuted = LoggerMessage.Define<string>(
+                LogLevel.Information,
+                104,
+                "Executed an implicit handler method, returned result {ActionResult}.");
 
             _pageFilterShortCircuit = LoggerMessage.Define<object>(
                LogLevel.Debug,
@@ -41,13 +59,33 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 LogLevel.Warning,
                 104,
                 "The page directive at '{FilePath}' is malformed. Please fix the following issues: {Diagnostics}");
+
+            _notMostEffectiveFilter = LoggerMessage.Define<Type>(
+               LogLevel.Debug,
+               1,
+               "Skipping the execution of current filter as its not the most effective filter implementing the policy {FilterPolicy}.");
+
+            _beforeExecutingMethodOnFilter = LoggerMessage.Define<string, string, string>(
+                LogLevel.Trace,
+                1,
+                "{FilterType}: Before executing {Method} on filter {Filter}.");
+
+            _afterExecutingMethodOnFilter = LoggerMessage.Define<string, string, string>(
+                LogLevel.Trace,
+                2,
+                "{FilterType}: After executing {Method} on filter {Filter}.");
+
+            _unsupportedAreaPath = LoggerMessage.Define<string>(
+                LogLevel.Warning,
+                1,
+                "The page at '{FilePath}' is located under the area root directory '/Areas/' but does not follow the path format '/Areas/AreaName/Pages/Directory/FileName.cshtml");
         }
 
         public static void ExecutingHandlerMethod(this ILogger logger, PageContext context, HandlerMethodDescriptor handler, object[] arguments)
         {
             if (logger.IsEnabled(LogLevel.Information))
             {
-                var handlerName = handler.MethodInfo.Name;
+                var handlerName = handler.MethodInfo.DeclaringType.FullName + "." + handler.MethodInfo.Name;
 
                 string[] convertedArguments;
                 if (arguments == null)
@@ -69,13 +107,41 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
             }
         }
 
+        public static void ExecutingImplicitHandlerMethod(this ILogger logger, PageContext context)
+        {
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                var validationState = context.ModelState.ValidationState;
+
+                _implicitHandlerMethodExecuting(logger, validationState, null);
+            }
+        }
+
         public static void ExecutedHandlerMethod(this ILogger logger, PageContext context, HandlerMethodDescriptor handler, IActionResult result)
         {
-            if (logger.IsEnabled(LogLevel.Debug))
+            if (logger.IsEnabled(LogLevel.Information))
             {
                 var handlerName = handler.MethodInfo.Name;
                 _handlerMethodExecuted(logger, handlerName, Convert.ToString(result), null);
             }
+        }
+
+        public static void ExecutedImplicitHandlerMethod(this ILogger logger, IActionResult result)
+        {
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                _implicitHandlerMethodExecuted(logger, Convert.ToString(result), null);
+            }
+        }
+
+        public static void BeforeExecutingMethodOnFilter(this ILogger logger, string filterType, string methodName, IFilterMetadata filter)
+        {
+            _beforeExecutingMethodOnFilter(logger, filterType, methodName, filter.GetType().ToString(), null);
+        }
+
+        public static void AfterExecutingMethodOnFilter(this ILogger logger, string filterType, string methodName, IFilterMetadata filter)
+        {
+            _afterExecutingMethodOnFilter(logger, filterType, methodName, filter.GetType().ToString(), null);
         }
 
         public static void PageFilterShortCircuited(
@@ -96,6 +162,19 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 }
 
                 _malformedPageDirective(logger, filePath, messages, null);
+            }
+        }
+
+        public static void NotMostEffectiveFilter(this ILogger logger, Type policyType)
+        {
+            _notMostEffectiveFilter(logger, policyType, null);
+        }
+
+        public static void UnsupportedAreaPath(this ILogger logger, string filePath)
+        {
+            if (logger.IsEnabled(LogLevel.Warning))
+            {
+                _unsupportedAreaPath(logger, filePath, null);
             }
         }
     }

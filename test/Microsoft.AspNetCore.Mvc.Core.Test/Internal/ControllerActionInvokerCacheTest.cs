@@ -11,6 +11,9 @@ using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Testing.xunit;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
@@ -97,19 +100,26 @@ namespace Microsoft.AspNetCore.Mvc.Internal
         {
             var descriptorProvider = new CustomActionDescriptorCollectionProvider(
                 new[] { controllerContext.ActionDescriptor });
-            var modelMetadataProvider = TestModelMetadataProvider.CreateDefaultProvider();
+            var modelMetadataProvider = new EmptyModelMetadataProvider();
             var modelBinderFactory = TestModelBinderFactory.CreateDefault();
+            var mvcOptions = Options.Create(new MvcOptions
+            {
+                AllowValidatingTopLevelNodes = true,
+            });
 
             return new ControllerActionInvokerCache(
                 descriptorProvider,
                 new ParameterBinder(
                     modelMetadataProvider,
                     modelBinderFactory,
-                    Mock.Of<IObjectModelValidator>()),
+                    Mock.Of<IObjectModelValidator>(),
+                    mvcOptions,
+                    NullLoggerFactory.Instance),
                 modelBinderFactory,
                 modelMetadataProvider,
                 filterProviders,
-                Mock.Of<IControllerFactoryProvider>());
+                Mock.Of<IControllerFactoryProvider>(),
+                mvcOptions);
         }
 
         private static ControllerContext CreateControllerContext(FilterDescriptor[] filterDescriptors)

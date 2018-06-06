@@ -196,18 +196,20 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
         public async Task GenericModelBinder_BindsCollection_ElementTypeUsesGreedyModelBinder_WithPrefix_Success()
         {
             // Arrange
-            var parameterBinder = ModelBindingTestHelper.GetParameterBinder(binderProvider: new AddressBinderProvider());
-            var parameter = new ParameterDescriptor()
-            {
-                Name = "parameter",
-                ParameterType = typeof(Address[])
-            };
-
             // Need to have a key here so that the GenericModelBinder will recurse to bind elements.
             var testContext = ModelBindingTestHelper.GetTestContext(
                 request => request.QueryString = new QueryString("?parameter.index=0"));
 
             var modelState = testContext.ModelState;
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder(
+                testContext.MvcOptions,
+                new AddressBinderProvider());
+
+            var parameter = new ParameterDescriptor()
+            {
+                Name = "parameter",
+                ParameterType = typeof(Address[])
+            };
 
             // Act
             var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);
@@ -216,10 +218,10 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             Assert.True(modelBindingResult.IsModelSet);
 
             var model = Assert.IsType<Address[]>(modelBindingResult.Model);
-            Assert.Equal(1, model.Length);
+            Assert.Single(model);
             Assert.NotNull(model[0]);
 
-            Assert.Equal(0, modelState.Count);
+            Assert.Empty(modelState);
             Assert.Equal(0, modelState.ErrorCount);
             Assert.True(modelState.IsValid);
         }
@@ -250,10 +252,10 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             Assert.True(modelBindingResult.IsModelSet);
 
             var model = Assert.IsType<Address[]>(modelBindingResult.Model);
-            Assert.Equal(1, model.Length);
+            Assert.Single(model);
             Assert.Null(model[0]);
 
-            Assert.Equal(0, modelState.Count);
+            Assert.Empty(modelState);
             Assert.Equal(0, modelState.ErrorCount);
             Assert.True(modelState.IsValid);
         }
@@ -378,7 +380,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             Assert.NotNull(model);
             Assert.Empty(model);
 
-            Assert.Equal(0, modelState.Count);
+            Assert.Empty(modelState);
             Assert.Equal(0, modelState.ErrorCount);
             Assert.True(modelState.IsValid);
         }
@@ -501,7 +503,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             Assert.NotNull(model);
             Assert.Empty(model);
 
-            Assert.Equal(0, modelState.Count);
+            Assert.Empty(modelState);
             Assert.Equal(0, modelState.ErrorCount);
             Assert.True(modelState.IsValid);
         }
@@ -633,7 +635,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             Assert.NotNull(model);
             Assert.Empty(model);
 
-            Assert.Equal(0, modelState.Count);
+            Assert.Empty(modelState);
             Assert.Equal(0, modelState.ErrorCount);
             Assert.True(modelState.IsValid);
         }

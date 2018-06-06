@@ -4,31 +4,40 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Razor.Language;
 using Microsoft.Extensions.FileProviders;
 
 namespace Microsoft.AspNetCore.Mvc.Razor.Internal
 {
-    public class FileProviderRazorProject : RazorProject
+    public class FileProviderRazorProjectFileSystem : RazorProjectFileSystem
     {
         private const string RazorFileExtension = ".cshtml";
         private readonly IFileProvider _provider;
+        private readonly IHostingEnvironment _hostingEnvironment;
 
-        public FileProviderRazorProject(IRazorViewEngineFileProviderAccessor accessor)
+        public FileProviderRazorProjectFileSystem(IRazorViewEngineFileProviderAccessor accessor, IHostingEnvironment hostingEnviroment)
         {
             if (accessor == null)
             {
                 throw new ArgumentNullException(nameof(accessor));
             }
 
+            if (hostingEnviroment == null)
+            {
+                throw new ArgumentNullException(nameof(hostingEnviroment));
+            }
+
             _provider = accessor.FileProvider;
+            _hostingEnvironment = hostingEnviroment;
         }
 
         public override RazorProjectItem GetItem(string path)
         {
             path = NormalizeAndEnsureValidPath(path);
             var fileInfo = _provider.GetFileInfo(path);
-            return new FileProviderRazorProjectItem(fileInfo, basePath: string.Empty, path: path);
+
+            return new FileProviderRazorProjectItem(fileInfo, basePath: string.Empty, filePath: path, root: _hostingEnvironment.ContentRootPath);
         }
 
         public override IEnumerable<RazorProjectItem> EnumerateItems(string path)
@@ -41,11 +50,11 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
         {
             if (directory.Exists)
             {
-                foreach (var file in directory)
+                foreach (var fileInfo in directory)
                 {
-                    if (file.IsDirectory)
+                    if (fileInfo.IsDirectory)
                     {
-                        var relativePath = prefix + "/" + file.Name;
+                        var relativePath = prefix + "/" + fileInfo.Name;
                         var subDirectory = _provider.GetDirectoryContents(JoinPath(basePath, relativePath));
                         var children = EnumerateFiles(subDirectory, basePath, relativePath);
                         foreach (var child in children)
@@ -53,9 +62,11 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
                             yield return child;
                         }
                     }
-                    else if (string.Equals(RazorFileExtension, Path.GetExtension(file.Name), StringComparison.OrdinalIgnoreCase))
+                    else if (string.Equals(RazorFileExtension, Path.GetExtension(fileInfo.Name), StringComparison.OrdinalIgnoreCase))
                     {
-                        yield return new FileProviderRazorProjectItem(file, basePath, prefix + "/" + file.Name);
+                        var filePath = prefix + "/" + fileInfo.Name;
+
+                        yield return new FileProviderRazorProjectItem(fileInfo, basePath, filePath: filePath, root: _hostingEnvironment.ContentRootPath);
                     }
                 }
             }

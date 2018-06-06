@@ -116,7 +116,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
 
             // Model
             var formatterArray = Assert.IsType<JsonOutputFormatter[]>(modelBindingResult.Model);
-            Assert.Equal(1, formatterArray.Length);
+            Assert.Single(formatterArray);
 
             // ModelState
             Assert.True(modelState.IsValid);
@@ -152,7 +152,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
 
             // Model
             var actionResultArray = Assert.IsType<IActionResult[]>(modelBindingResult.Model);
-            Assert.Equal(0, actionResultArray.Length);
+            Assert.Empty(actionResultArray);
 
             // ModelState
             Assert.True(modelState.IsValid);
@@ -205,17 +205,15 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
                 .ForProperty<Person>(nameof(Person.Service))
                 .BindingDetails(binding => binding.BindingSource = BindingSource.Services);
 
-            var parameterBinder = ModelBindingTestHelper.GetParameterBinder(metadataProvider);
+            var testContext = ModelBindingTestHelper.GetTestContext(metadataProvider: metadataProvider);
+            var modelState = testContext.ModelState;
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder(testContext.HttpContext.RequestServices);
             var parameter = new ParameterDescriptor
             {
                 Name = "parameter-name",
                 BindingInfo = bindingInfo,
                 ParameterType = typeof(Person),
             };
-
-            var testContext = ModelBindingTestHelper.GetTestContext();
-            testContext.MetadataProvider = metadataProvider;
-            var modelState = testContext.ModelState;
 
             // Act
             var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);
@@ -245,17 +243,15 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
                 .ForType<JsonOutputFormatter>()
                 .BindingDetails(binding => binding.BindingSource = BindingSource.Services);
 
-            var parameterBinder = ModelBindingTestHelper.GetParameterBinder(metadataProvider);
+            var testContext = ModelBindingTestHelper.GetTestContext(metadataProvider: metadataProvider);
+            var modelState = testContext.ModelState;
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder(testContext.HttpContext.RequestServices);
             var parameter = new ParameterDescriptor
             {
                 Name = "parameter-name",
                 BindingInfo = bindingInfo,
                 ParameterType = typeof(JsonOutputFormatter),
             };
-
-            var testContext = ModelBindingTestHelper.GetTestContext();
-            testContext.MetadataProvider = metadataProvider;
-            var modelState = testContext.ModelState;
 
             // Act
             var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);

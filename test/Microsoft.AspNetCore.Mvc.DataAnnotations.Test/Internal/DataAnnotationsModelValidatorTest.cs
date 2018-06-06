@@ -1,7 +1,6 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
-using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -9,7 +8,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Internal;
 using Microsoft.Extensions.Localization;
 using Moq;
 using Xunit;
@@ -18,7 +16,8 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 {
     public class DataAnnotationsModelValidatorTest
     {
-        private static IModelMetadataProvider _metadataProvider = TestModelMetadataProvider.CreateDefaultProvider();
+        private static readonly ModelMetadataProvider _metadataProvider
+            = TestModelMetadataProvider.CreateDefaultProvider();
 
         [Fact]
         public void Constructor_SetsAttribute()
@@ -36,11 +35,15 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
             Assert.Same(attribute, validator.Attribute);
         }
 
-        public static TheoryData Validate_SetsMemberName_AsExpectedData
+        public static TheoryData<ModelMetadata, object, object, string> Validate_SetsMemberName_AsExpectedData
         {
             get
             {
                 var array = new[] { new SampleModel { Name = "one" }, new SampleModel { Name = "two" } };
+                var method = typeof(ModelValidationResultComparer).GetMethod(
+                    nameof(ModelValidationResultComparer.GetHashCode),
+                    new[] { typeof(ModelValidationResult) });
+                var parameter = method.GetParameters()[0]; // GetHashCode(ModelValidationResult obj)
 
                 // metadata, container, model, expected MemberName
                 return new TheoryData<ModelMetadata, object, object, string>
@@ -52,7 +55,21 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
                         nameof(string.Length)
                     },
                     {
-                        // Validating a top-level model
+                        // Validating a top-level property.
+                        _metadataProvider.GetMetadataForProperty(typeof(SampleModel), nameof(SampleModel.Name)),
+                        null,
+                        "Fred",
+                        nameof(SampleModel.Name)
+                    },
+                    {
+                        // Validating a parameter.
+                        _metadataProvider.GetMetadataForParameter(parameter),
+                        null,
+                        new ModelValidationResult(memberName: string.Empty, message: string.Empty),
+                        "obj"
+                    },
+                    {
+                        // Validating a top-level parameter as if using old-fashioned metadata provider.
                         _metadataProvider.GetMetadataForType(typeof(SampleModel)),
                         null,
                         15,
@@ -188,6 +205,54 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
                 metadataProvider: _metadataProvider,
                 container: container,
                 model: model);
+
+            // Act
+            var result = validator.Validate(validationContext);
+
+            // Assert
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void Validate_RequiredButNullAtTopLevel_Invalid()
+        {
+            // Arrange
+            var metadata = _metadataProvider.GetMetadataForProperty(typeof(string), "Length");
+            var validator = new DataAnnotationsModelValidator(
+                new ValidationAttributeAdapterProvider(),
+                new RequiredAttribute(),
+                stringLocalizer: null);
+            var validationContext = new ModelValidationContext(
+                actionContext: new ActionContext(),
+                modelMetadata: metadata,
+                metadataProvider: _metadataProvider,
+                container: null,
+                model: null);
+
+            // Act
+            var result = validator.Validate(validationContext);
+
+            // Assert
+            var validationResult = result.Single();
+            Assert.Empty(validationResult.MemberName);
+            Assert.Equal(new RequiredAttribute().FormatErrorMessage("Length"), validationResult.Message);
+        }
+
+        [Fact]
+        public void Validate_RequiredAndNotNullAtTopLevel_Valid()
+        {
+            // Arrange
+            var metadata = _metadataProvider.GetMetadataForProperty(typeof(string), "Length");
+            var validator = new DataAnnotationsModelValidator(
+                new ValidationAttributeAdapterProvider(),
+                new RequiredAttribute(),
+                stringLocalizer: null);
+            var validationContext = new ModelValidationContext(
+                actionContext: new ActionContext(),
+                modelMetadata: metadata,
+                metadataProvider: _metadataProvider,
+                container: null,
+                model: 123);
 
             // Act
             var result = validator.Validate(validationContext);
@@ -493,40 +558,6 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         public interface IExampleService
         {
             void DoSomething();
-        }
-
-        private class ModelValidationResultComparer : IEqualityComparer<ModelValidationResult>
-        {
-            public static readonly ModelValidationResultComparer Instance = new ModelValidationResultComparer();
-
-            private ModelValidationResultComparer()
-            {
-            }
-
-            public bool Equals(ModelValidationResult x, ModelValidationResult y)
-            {
-                if (x == null || y == null)
-                {
-                    return x == null && y == null;
-                }
-
-                return string.Equals(x.MemberName, y.MemberName, StringComparison.Ordinal) &&
-                    string.Equals(x.Message, y.Message, StringComparison.Ordinal);
-            }
-
-            public int GetHashCode(ModelValidationResult obj)
-            {
-                if (obj == null)
-                {
-                    throw new ArgumentNullException(nameof(obj));
-                }
-
-                var hashCodeCombiner = HashCodeCombiner.Start();
-                hashCodeCombiner.Add(obj.MemberName, StringComparer.Ordinal);
-                hashCodeCombiner.Add(obj.Message, StringComparer.Ordinal);
-
-                return hashCodeCombiner.CombinedHash;
-            }
         }
     }
 }

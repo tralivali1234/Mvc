@@ -11,6 +11,7 @@ using Xunit;
 
 namespace Microsoft.AspNetCore.Mvc.Razor.Compilation
 {
+#pragma warning disable CS0618 // Type or member is obsolete
     public class ViewsFeatureProviderTest
     {
         [Fact]
@@ -81,6 +82,40 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Compilation
                     Assert.Equal("/Views/test/Index.cshtml", view.RelativePath);
                     Assert.Equal(typeof(object), view.ViewAttribute.ViewType);
                 });
+        }
+
+        [Fact]
+        public void PopulateFeature_ThrowsIfSingleAssemblyContainsMultipleAttributesWithTheSamePath()
+        {
+            // Arrange
+            var path1 = "/Views/test/Index.cshtml";
+            var path2 = "/views/test/index.cshtml";
+            var expected = string.Join(
+                Environment.NewLine,
+                "The following precompiled view paths differ only in case, which is not supported:",
+                path1,
+                path2);
+            var part = new AssemblyPart(typeof(object).GetTypeInfo().Assembly);
+            var featureProvider = new TestableViewsFeatureProvider(new Dictionary<AssemblyPart, IEnumerable<RazorViewAttribute>>
+            {
+                {
+                    part,
+                    new[]
+                    {
+                        new RazorViewAttribute(path1, typeof(object)),
+                        new RazorViewAttribute(path2, typeof(object)),
+                    }
+                },
+            });
+
+            var applicationPartManager = new ApplicationPartManager();
+            applicationPartManager.ApplicationParts.Add(part);
+            applicationPartManager.FeatureProviders.Add(featureProvider);
+            var feature = new ViewsFeature();
+
+            // Act & Assert
+            var ex = Assert.Throws<InvalidOperationException>(() => applicationPartManager.PopulateFeature(feature));
+            Assert.Equal(expected, ex.Message);
         }
 
         [Fact]
@@ -158,4 +193,5 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Compilation
             }
         }
     }
+#pragma warning restore CS0618 // Type or member is obsolete
 }

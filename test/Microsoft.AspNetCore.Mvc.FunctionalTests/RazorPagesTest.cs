@@ -3,12 +3,17 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Testing;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Mvc.FunctionalTests
@@ -19,8 +24,12 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
 
         public RazorPagesTest(MvcTestFixture<RazorPagesWebSite.Startup> fixture)
         {
-            Client = fixture.Client;
+            var factory = fixture.Factories.FirstOrDefault() ?? fixture.WithWebHostBuilder(ConfigureWebHostBuilder);
+            Client = factory.CreateDefaultClient();
         }
+
+        private static void ConfigureWebHostBuilder(IWebHostBuilder builder) =>
+            builder.UseStartup<RazorPagesWebSite.Startup>();
 
         public HttpClient Client { get; }
 
@@ -40,8 +49,6 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             Assert.Equal(expectedMediaType, response.Content.Headers.ContentType);
 
-            responseContent = responseContent.Trim();
-
             var forgeryToken = AntiforgeryTestHelper.RetrieveAntiforgeryToken(responseContent, "SimpleForms");
 #if GENERATE_BASELINES
             // Reverse usual substitution and insert a format item into the new file content.
@@ -49,7 +56,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             ResourceFile.UpdateFile(_resourcesAssembly, outputFile, expectedContent, responseContent);
 #else
             expectedContent = string.Format(expectedContent, forgeryToken);
-            Assert.Equal(expectedContent.Trim(), responseContent, ignoreLineEndingDifferences: true);
+            Assert.Equal(expectedContent, responseContent.Trim(), ignoreLineEndingDifferences: true);
 #endif
         }
 
@@ -294,6 +301,20 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
         }
 
         [Fact]
+        public async Task PageHandlerCanReturnBadRequest()
+        {
+            // Arrange
+            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/Pages/HandlerWithParameter");
+
+            // Act
+            var response = await Client.SendAsync(request);
+
+            // Assert
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("Parameter cannot be null.", await response.Content.ReadAsStringAsync());
+        }
+
+        [Fact]
         public async Task HelloWorld_CanGetContent()
         {
             // Arrange
@@ -368,11 +389,14 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             Assert.StartsWith("Hello, You posted!", content.Trim());
         }
 
-        [Fact]
-        public async Task HelloWorldWithPageModelHandler_CanGetContent()
+        [Theory]
+        [InlineData("GET")]
+        [InlineData("HEAD")]
+        public async Task HelloWorldWithPageModelHandler_CanGetContent(string httpMethod)
         {
             // Arrange
-            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/HelloWorldWithPageModelHandler?message=pagemodel");
+            var url = "http://localhost/HelloWorldWithPageModelHandler?message=pagemodel";
+            var request = new HttpRequestMessage(new HttpMethod(httpMethod), url);
 
             // Act
             var response = await Client.SendAsync(request);
@@ -577,13 +601,14 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
         {
             // Test for https://github.com/aspnet/Mvc/issues/5915
             //Arrange
-            var expected = $"Hello from _ViewStart{Environment.NewLine}Hello from /Pages/WithViewStart/Index.cshtml!";
+            var expected = @"Hello from _ViewStart
+Hello from /Pages/WithViewStart/Index.cshtml!";
 
             // Act
             var response = await Client.GetStringAsync("/Pages/WithViewStart");
 
             // Assert
-            Assert.Equal(expected, response.Trim());
+            Assert.Equal(expected, response, ignoreLineEndingDifferences: true);
         }
 
         [Fact]
@@ -659,8 +684,8 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
         public async Task PropertiesOnPageModelAreBound()
         {
             // Arrange
-            var expected = "Id = 10, Name = Foo, Age = 25";
-            var request = new HttpRequestMessage(HttpMethod.Post, "Pages/PropertyBinding/PageModelWithPropertyBinding/10")
+            var expected = "Id = 10, Name = Foo, Age = 25, PropertyWithSupportGetsTrue = foo";
+            var request = new HttpRequestMessage(HttpMethod.Post, "Pages/PropertyBinding/PageModelWithPropertyBinding/10?PropertyWithSupportGetsTrue=foo")
             {
                 Content = new FormUrlEncodedContent(new KeyValuePair<string, string>[]
                 {
@@ -686,7 +711,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             var url = "Pages/PropertyBinding/PageModelWithPropertyBinding/27";
             var expected = new[]
             {
-                "Id = 27, Name = , Age = 325",
+                "Id = 27, Name = , Age = 325, PropertyWithSupportGetsTrue =",
                 "The Name field is required.",
                 "The field Age must be between 0 and 99.",
             };
@@ -763,6 +788,38 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
         }
 
         [Fact]
+        public async Task PageProperty_WithSupportsGetTrue_OnPageWithHandler_FuzzyMatchesHeadRequest()
+        {
+            // Arrange
+            var request = new HttpRequestMessage(HttpMethod.Head, "Pages/PropertyBinding/PageModelWithPropertyBinding/10?PropertyWithSupportGetsTrue=foo");
+
+            // Act
+            var response = await Client.SendAsync(request);
+
+            // Assert
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotNull(response.Content);
+            Assert.NotNull(response.Content.Headers.ContentType);
+            Assert.Equal("text/html", response.Content.Headers.ContentType.MediaType);
+        }
+
+        [Fact]
+        public async Task PageProperty_WithSupportsGetTrue_OnPageWithNoHandler_FuzzyMatchesHeadRequest()
+        {
+            // Arrange
+            var request = new HttpRequestMessage(HttpMethod.Head, "Pages/PropertyBinding/BindPropertyWithGet?value=11");
+
+            // Act
+            var response = await Client.SendAsync(request);
+
+            // Assert
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.NotNull(response.Content);
+            Assert.NotNull(response.Content.Headers.ContentType);
+            Assert.Equal("text/html", response.Content.Headers.ContentType.MediaType);
+        }
+
+        [Fact]
         public async Task PageProperty_WithSupportsGet_BoundInGet()
         {
             // Arrange
@@ -784,14 +841,14 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             // Arrange
             var expected =
 @"Microsoft.AspNetCore.Mvc.Routing.UrlHelper
-Microsoft.AspNetCore.Mvc.ViewFeatures.HtmlHelper`1[AspNetCore._InjectedPageProperties_cshtml]
-Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary`1[AspNetCore._InjectedPageProperties_cshtml]";
+Microsoft.AspNetCore.Mvc.ViewFeatures.HtmlHelper`1[AspNetCore.InjectedPageProperties]
+Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary`1[AspNetCore.InjectedPageProperties]";
 
             // Act
             var response = await Client.GetStringAsync("InjectedPageProperties");
 
             // Assert
-            Assert.Equal(expected, response.Trim());
+            Assert.Equal(expected, response.Trim(), ignoreLineEndingDifferences: true);
         }
 
         [Fact]
@@ -821,7 +878,6 @@ Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary`1[AspNetCore._InjectedP
             Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
             Assert.Equal(expected, response.Headers.Location.ToString());
         }
-
 
         [Fact]
         public async Task RedirectToSelfWorks()
@@ -968,7 +1024,7 @@ Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary`1[AspNetCore._InjectedP
         {
             // Arrange
             var expected =
-            @"<form method=""post"" action=""/Pages/TagHelper/CrossPost""></form>
+@"<form method=""post"" action=""/Pages/TagHelper/CrossPost""></form>
 <a href=""/Pages/TagHelper/SelfPost/12"" />
 <input type=""image"" formaction=""/Pages/TagHelper/CrossPost#my-fragment"" />";
 
@@ -976,7 +1032,7 @@ Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary`1[AspNetCore._InjectedP
             var response = await Client.GetStringAsync("/Pages/TagHelper/SiblingLinks");
 
             // Assert
-            Assert.Equal(expected, response.Trim());
+            Assert.Equal(expected, response.Trim(), ignoreLineEndingDifferences: true);
         }
 
         [Fact]
@@ -984,7 +1040,7 @@ Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary`1[AspNetCore._InjectedP
         {
             // Arrange
             var expected =
-            @"<form method=""post"" action=""/Pages/TagHelper/SubDir/SubDirPage""></form>
+@"<form method=""post"" action=""/Pages/TagHelper/SubDir/SubDirPage""></form>
 <a href=""/Pages/TagHelper/SubDir/SubDirPage/12"" />
 <input type=""image"" formaction=""/Pages/TagHelper/SubDir/SubDirPage#my-fragment"" />";
 
@@ -992,7 +1048,7 @@ Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary`1[AspNetCore._InjectedP
             var response = await Client.GetStringAsync("/Pages/TagHelper/SubDirectoryLinks");
 
             // Assert
-            Assert.Equal(expected, response.Trim());
+            Assert.Equal(expected, response.Trim(), ignoreLineEndingDifferences: true);
         }
 
         [Fact]
@@ -1000,7 +1056,8 @@ Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary`1[AspNetCore._InjectedP
         {
             // Arrange
             var expected =
-            @"<form method=""post"" action=""/HelloWorld""></form>
+@"<form method=""post"" action=""/Pages/TagHelper/SubDirectoryLinks""></form>
+<form method=""post"" action=""/HelloWorld""></form>
 <a href=""/Pages/Redirects/RedirectToIndex"" />
 <input type=""image"" formaction=""/Pages/Admin#my-fragment"" />";
 
@@ -1008,20 +1065,7 @@ Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary`1[AspNetCore._InjectedP
             var response = await Client.GetStringAsync("/Pages/TagHelper/PathTraversalLinks");
 
             // Assert
-            Assert.EndsWith(expected, response.Trim());
-        }
-
-        [Fact]
-        public async Task TagHelpers_SupportsRelativeNavigation()
-        {
-            // Arrange
-            var expected = @"<form method=""post"" action=""/Pages/TagHelper/SubDirectoryLinks""></form>";
-
-            // Act
-            var response = await Client.GetStringAsync("/Pages/TagHelper/PathTraversalLinks");
-
-            // Assert
-            Assert.StartsWith(expected, response.Trim());
+            Assert.Equal(expected, response.Trim(), ignoreLineEndingDifferences: true);
         }
 
         [Fact]
@@ -1075,6 +1119,17 @@ Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary`1[AspNetCore._InjectedP
         }
 
         [Fact]
+        public async Task AuthorizeAttributeIsExecutedPriorToAutoAntiforgeryFilter()
+        {
+            // Act
+            var response = await Client.PostAsync("/Pages/Admin/Edit", new StringContent(""));
+
+            // Assert
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+            Assert.Equal("/Login?ReturnUrl=%2FPages%2FAdmin%2FEdit", response.Headers.Location.PathAndQuery);
+        }
+
+        [Fact]
         public async Task PageFiltersAppliedToPageModel_AreExecuted()
         {
             // Arrange
@@ -1085,6 +1140,216 @@ Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary`1[AspNetCore._InjectedP
 
             // Assert
             Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task ResponseCacheAttributes_AreApplied()
+        {
+            // Arrange
+            var expected = "Hello from ModelWithResponseCache.OnGet";
+
+            // Act
+            var response = await Client.GetAsync("/ModelWithResponseCache");
+
+            // Assert
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var cacheControl = response.Headers.CacheControl;
+            Assert.Equal(TimeSpan.FromSeconds(10), cacheControl.MaxAge.Value);
+            Assert.True(cacheControl.Private);
+            Assert.Equal(expected, (await response.Content.ReadAsStringAsync()).Trim());
+        }
+
+        [Fact]
+        public async Task ViewLocalizer_WorksForPagesWithoutModel()
+        {
+            // Arrange
+            var expected = "Bon Jour from Page";
+
+            // Act
+            var response = await Client.GetStringAsync("/Pages/Localized/Page?culture=fr-FR");
+
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task ViewLocalizer_WorksForPagesWithModel()
+        {
+            // Arrange
+            var expected = "Bon Jour from PageWithModel";
+
+            // Act
+            var response = await Client.GetStringAsync("/Pages/Localized/PageWithModel?culture=fr-FR");
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task BindPropertiesAttribute_CanBeAppliedToModelType()
+        {
+            // Arrange
+            var expected = "Property1 = 123, Property2 = 25,";
+            var request = new HttpRequestMessage(HttpMethod.Post, "/Pages/PropertyBinding/BindPropertiesOnModel?Property1=123")
+            {
+                Content = new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    { "Property2", "25" },
+                }),
+            };
+            await AddAntiforgeryHeaders(request);
+
+            // Act
+            var response = await Client.SendAsync(request);
+
+            // Assert
+            response.EnsureSuccessStatusCode();
+            var responseContent = await response.Content.ReadAsStringAsync();
+            Assert.StartsWith(expected, responseContent.Trim());
+        }
+
+        [Fact]
+        public async Task BindPropertiesAttribute_CanBeAppliedToModelType_AllowsBindingOnGet()
+        {
+            // Arrange
+            var url = "/Pages/PropertyBinding/BindPropertiesWithSupportsGetOnModel?Property=Property-Value";
+
+            // Act
+            var response = await Client.GetAsync(url);
+
+            // Assert
+            await response.AssertStatusCodeAsync(HttpStatusCode.OK);
+            var content = await response.Content.ReadAsStringAsync();
+            Assert.Equal("Property-Value", content.Trim());
+        }
+
+        [Fact]
+        public async Task BindingInfoOnPropertiesIsPreferredToBindingInfoOnType()
+        {
+            // Arrange
+            var expected = "Property1 = 123, Property2 = 25,";
+            var request = new HttpRequestMessage(HttpMethod.Post, "/Pages/PropertyBinding/BindPropertiesOnModel?Property1=123")
+            {
+                Content = new FormUrlEncodedContent(new[]
+                {
+                    // FormValueProvider appears before QueryStringValueProvider. However, the FromQuery explicitly listed
+                    // on the property should cause it to use the latter.
+                    new KeyValuePair<string, string>("Property1", "345"),
+                    new KeyValuePair<string, string>("Property2", "25"),
+                }),
+            };
+            await AddAntiforgeryHeaders(request);
+
+            // Act
+            var response = await Client.SendAsync(request);
+
+            // Assert
+            response.EnsureSuccessStatusCode();
+            var responseContent = await response.Content.ReadAsStringAsync();
+            Assert.StartsWith(expected, responseContent.Trim());
+        }
+
+        [Fact]
+        public Task InheritsOnViewImportsWorksForPagesWithoutModel()
+            => InheritsOnViewImportsWorks("Pages/CustomBaseType/Page");
+
+        [Fact]
+        public Task InheritsOnViewImportsWorksForPagesWithModel()
+            => InheritsOnViewImportsWorks("Pages/CustomBaseType/PageWithModel");
+
+        private async Task InheritsOnViewImportsWorks(string path)
+        {
+            // Arrange
+            var expected = "<custom-base-type-layout>RazorPagesWebSite.CustomPageBase</custom-base-type-layout>";
+
+            // Act
+            var response = await Client.GetStringAsync(path);
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task PageHandlerFilterOnPageModelIsExecuted()
+        {
+            // Arrange
+            var expected = "Hello from OnPageHandlerExecuting";
+
+            // Act
+            var response = await Client.GetStringAsync("/ModelAsFilter?message=Hello+world");
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task ResultFilterOnPageModelIsExecuted()
+        {
+            // Act
+            var response = await Client.GetAsync("/ModelAsFilter/TestResultFilter");
+
+            // Assert
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task Page_CanOverrideRouteTemplate()
+        {
+            // Arrange & Act
+            var content = await Client.GetStringAsync("like-totally-custom");
+
+            // Assert
+            Assert.Equal("<p>Hey, it's Mr. totally custom here!</p>", content.Trim());
+        }
+
+        [Fact]
+        public async Task Page_Handler_BindsToDefaultValues()
+        {
+            // Arrange
+            string expected;
+            using (new CultureReplacer(CultureInfo.InvariantCulture, CultureInfo.InvariantCulture))
+            {
+                expected = $"id: 10, guid: {default(Guid)}, boolean: {default(bool)}, dateTime: {default(DateTime)}";
+            }
+
+            // Act
+            var content = await Client.GetStringAsync("http://localhost/ModelHandlerTestPage/DefaultValues");
+
+            // Assert
+            Assert.Equal(expected, content);
+        }
+
+        [Theory]
+        [InlineData(nameof(IAuthorizationFilter.OnAuthorization))]
+        [InlineData(nameof(IAsyncAuthorizationFilter.OnAuthorizationAsync))]
+        public async Task PageResultSetAt_AuthorizationFilter_Works(string targetName)
+        {
+            // Act
+            var content = await Client.GetStringAsync("http://localhost/Pages/ShortCircuitPageAtAuthFilter?target=" + targetName);
+
+            // Assert
+            Assert.Equal("From ShortCircuitPageAtAuthFilter.cshtml", content);
+        }
+
+        [Theory]
+        [InlineData(nameof(IPageFilter.OnPageHandlerExecuting))]
+        [InlineData(nameof(IAsyncPageFilter.OnPageHandlerExecutionAsync))]
+        public async Task PageResultSetAt_PageFilter_Works(string targetName)
+        {
+            // Act
+            var content = await Client.GetStringAsync("http://localhost/Pages/ShortCircuitPageAtPageFilter?target=" + targetName);
+
+            // Assert
+            Assert.Equal("From ShortCircuitPageAtPageFilter.cshtml", content);
+        }
+
+        [Fact]
+        public async Task ViewDataAvaialableInPageFilter_AfterHandlerMethod_ReturnsPageResult()
+        {
+            // Act
+            var content = await Client.GetStringAsync("http://localhost/Pages/ViewDataAvailableAfterHandlerExecuted");
+
+            // Assert
+            Assert.Equal("ViewData: Bar", content);
         }
 
         private async Task AddAntiforgeryHeaders(HttpRequestMessage request)

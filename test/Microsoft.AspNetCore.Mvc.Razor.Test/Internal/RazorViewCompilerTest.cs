@@ -8,37 +8,23 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Mvc.Razor.Compilation;
+using Microsoft.AspNetCore.Mvc.Razor.Extensions;
+using Microsoft.AspNetCore.Razor.Hosting;
 using Microsoft.AspNetCore.Razor.Language;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Emit;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
+using static Microsoft.AspNetCore.Razor.Hosting.TestRazorCompiledItem;
 
 namespace Microsoft.AspNetCore.Mvc.Razor.Internal
 {
     public class RazorViewCompilerTest
     {
-        [Fact]
-        public void Constructor_ThrowsIfMultiplePrecompiledViewsHavePathsDifferingOnlyInCase()
-        {
-            // Arrange
-            var fileProvider = new TestFileProvider();
-            var precompiledViews = new[]
-            {
-                new CompiledViewDescriptor { RelativePath = "/Views/Home/About.cshtml" },
-                new CompiledViewDescriptor { RelativePath = "/Views/home/About.cshtml" },
-            };
-            var message = string.Join(
-                Environment.NewLine,
-                "The following precompiled view paths differ only in case, which is not supported:",
-                precompiledViews[0].RelativePath,
-                precompiledViews[1].RelativePath);
-
-            // Act & Assert
-            var ex = Assert.Throws<InvalidOperationException>(() => GetViewCompiler(fileProvider, precompiledViews: precompiledViews));
-            Assert.Equal(message, ex.Message);
-        }
-
         [Fact]
         public async Task CompileAsync_ReturnsResultWithNullAttribute_IfFileIsNotFoundInFileSystem()
         {
@@ -54,7 +40,8 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
             // Assert
             Assert.Same(result1, result2);
             Assert.Null(result1.ViewAttribute);
-            Assert.Collection(result1.ExpirationTokens,
+            Assert.Collection(
+                result1.ExpirationTokens,
                 token => Assert.Equal(fileProvider.GetChangeToken(path), token));
         }
 
@@ -72,11 +59,12 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
 
             // Assert
             Assert.NotNull(result.ViewAttribute);
-            Assert.Collection(result.ExpirationTokens,
+            Assert.Collection(
+                result.ExpirationTokens,
                 token => Assert.Same(fileProvider.GetChangeToken(path), token),
-                token => Assert.Same(fileProvider.GetChangeToken("/file/exists/_ViewImports.cshtml"), token),
+                token => Assert.Same(fileProvider.GetChangeToken("/_ViewImports.cshtml"), token),
                 token => Assert.Same(fileProvider.GetChangeToken("/file/_ViewImports.cshtml"), token),
-                token => Assert.Same(fileProvider.GetChangeToken("/_ViewImports.cshtml"), token));
+                token => Assert.Same(fileProvider.GetChangeToken("/file/exists/_ViewImports.cshtml"), token));
         }
 
         [Theory]
@@ -199,6 +187,9 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
 
             // Assert
             Assert.Same(precompiledView, result);
+
+            // This view doesn't have checksums so it can't be recompiled.
+            Assert.Null(precompiledView.ExpirationTokens);
         }
 
         [Theory]
@@ -245,25 +236,289 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
         }
 
         [Fact]
-        public async Task CompileAsync_DoesNotRecompile_IfFileTriggerWasSetForPrecompiledView()
+        public async Task CompileAsync_PrecompiledViewWithoutChecksumForMainSource_DoesNotSupportRecompilation()
         {
             // Arrange
             var path = "/Views/Home/Index.cshtml";
+
             var fileProvider = new TestFileProvider();
             var fileInfo = fileProvider.AddFile(path, "some content");
+
             var precompiledView = new CompiledViewDescriptor
             {
                 RelativePath = path,
+                Item = new TestRazorCompiledItem(typeof(string), "mvc.1.0.view", path, new object[]
+                {
+                    new RazorSourceChecksumAttribute("sha1", GetChecksum("some content"), "/Views/Some-Other-View"),
+                }),
             };
+
+            var viewCompiler = GetViewCompiler(fileProvider, precompiledViews: new[] { precompiledView });
+
+            // Act - 1
+            var result = await viewCompiler.CompileAsync(path);
+
+            // Assert - 1
+            Assert.Same(precompiledView.Item, result.Item);
+
+            // Act - 2
+            fileProvider.Watch(path);
+            fileProvider.GetChangeToken(path).HasChanged = true;
+            result = await viewCompiler.CompileAsync(path);
+
+            // Assert - 2
+            Assert.Same(precompiledView.Item, result.Item);
+
+            // This view doesn't have checksums so it can't be recompiled.
+            Assert.Null(result.ExpirationTokens);
+        }
+
+        [Fact]
+        public async Task CompileAsync_PrecompiledViewWithoutAnyChecksum_DoesNotSupportRecompilation()
+        {
+            // Arrange
+            var path = "/Views/Home/Index.cshtml";
+
+            var fileProvider = new TestFileProvider();
+            var fileInfo = fileProvider.AddFile(path, "some content");
+
+            var precompiledView = new CompiledViewDescriptor
+            {
+                RelativePath = path,
+                Item = new TestRazorCompiledItem(typeof(string), "mvc.1.0.view", path, new object[] { }),
+            };
+
+            var viewCompiler = GetViewCompiler(fileProvider, precompiledViews: new[] { precompiledView });
+
+            // Act - 1
+            var result = await viewCompiler.CompileAsync(path);
+
+            // Assert - 1
+            Assert.Same(precompiledView, result);
+
+            // Act - 2
+            fileProvider.Watch(path);
+            fileProvider.GetChangeToken(path).HasChanged = true;
+            result = await viewCompiler.CompileAsync(path);
+
+            // Assert - 2
+            Assert.Same(precompiledView, result);
+
+            // This view doesn't have checksums so it can't be recompiled.
+            Assert.Null(result.ExpirationTokens);
+        }
+
+        [Fact]
+        public async Task CompileAsync_PrecompiledViewWithChecksum_UsesPrecompiledViewWhenChecksumIsMatch()
+        {
+            // Arrange
+            var path = "/Views/Home/Index.cshtml";
+
+            var fileProvider = new TestFileProvider();
+            var fileInfo = fileProvider.AddFile(path, "some content");
+
+            var precompiledView = new CompiledViewDescriptor
+            {
+                RelativePath = path,
+                Item = new TestRazorCompiledItem(typeof(string), "mvc.1.0.view", path, new object[]
+                {
+                    new RazorSourceChecksumAttribute("SHA1", GetChecksum("some content"), path),
+                }),
+            };
+
             var viewCompiler = GetViewCompiler(fileProvider, precompiledViews: new[] { precompiledView });
 
             // Act
-            fileProvider.Watch(path);
-            fileProvider.GetChangeToken(path).HasChanged = true;
             var result = await viewCompiler.CompileAsync(path);
 
             // Assert
-            Assert.Same(precompiledView, result);
+            Assert.Same(precompiledView.Item, result.Item);
+
+            // This view has checksums so it should also have tokens
+            Assert.Collection(
+                 result.ExpirationTokens,
+                 token => Assert.Same(fileProvider.GetChangeToken(path), token));
+        }
+
+        [Fact]
+        public async Task CompileAsync_PrecompiledViewWithChecksum_CanRejectWhenChecksumFails()
+        {
+            // Arrange
+            var path = "/Views/Home/Index.cshtml";
+
+            var fileProvider = new TestFileProvider();
+            var fileInfo = fileProvider.AddFile(path, "some content");
+
+            var expected = new CompiledViewDescriptor();
+
+            var precompiledView = new CompiledViewDescriptor
+            {
+                RelativePath = path,
+                Item = new TestRazorCompiledItem(typeof(string), "mvc.1.0.view", path, new object[]
+                {
+                    new RazorSourceChecksumAttribute("SHA1", GetChecksum("some other content"), path),
+                }),
+            };
+
+            var viewCompiler = GetViewCompiler(fileProvider, precompiledViews: new[] { precompiledView });
+            viewCompiler.Compile = _ => expected;
+
+            // Act
+            var result = await viewCompiler.CompileAsync(path);
+
+            // Assert
+            Assert.Same(expected, result);
+        }
+
+        [Fact]
+        public async Task CompileAsync_PrecompiledViewWithChecksum_CanRecompile()
+        {
+            // Arrange
+            var path = "/Views/Home/Index.cshtml";
+
+            var fileProvider = new TestFileProvider();
+            var fileInfo = fileProvider.AddFile(path, "some content");
+
+            var expected2 = new CompiledViewDescriptor();
+
+            var precompiledView = new CompiledViewDescriptor
+            {
+                RelativePath = path,
+                Item = new TestRazorCompiledItem(typeof(string), "mvc.1.0.view", path, new object[]
+                {
+                    new RazorSourceChecksumAttribute("SHA1", GetChecksum("some content"), path),
+                }),
+            };
+
+            var viewCompiler = GetViewCompiler(fileProvider, precompiledViews: new[] { precompiledView });
+
+            // Act - 1
+            var result = await viewCompiler.CompileAsync(path);
+
+            // Assert - 1
+            Assert.Same(precompiledView.Item, result.Item);
+
+            // Act - 2
+            fileInfo.Content = "some other content";
+            fileProvider.GetChangeToken(path).HasChanged = true;
+            viewCompiler.Compile = _ => expected2;
+            result = await viewCompiler.CompileAsync(path);
+
+            // Assert - 2
+            Assert.Same(expected2, result);
+        }
+
+        [Fact]
+        public async Task CompileAsync_PrecompiledViewWithChecksum_DoesNotRecompiledWithoutContentChange()
+        {
+            // Arrange
+            var path = "/Views/Home/Index.cshtml";
+
+            var fileProvider = new TestFileProvider();
+            var fileInfo = fileProvider.AddFile(path, "some content");
+
+            var precompiledView = new CompiledViewDescriptor
+            {
+                RelativePath = path,
+                Item = new TestRazorCompiledItem(typeof(string), "mvc.1.0.view", path, new object[]
+                {
+                    new RazorSourceChecksumAttribute("SHA1", GetChecksum("some content"), path),
+                }),
+            };
+
+            var viewCompiler = GetViewCompiler(fileProvider, precompiledViews: new[] { precompiledView });
+
+            // Act - 1
+            var result = await viewCompiler.CompileAsync(path);
+
+            // Assert - 1
+            Assert.Same(precompiledView.Item, result.Item);
+
+            // Act - 2
+            fileProvider.GetChangeToken(path).HasChanged = true;
+            result = await viewCompiler.CompileAsync(path);
+
+            // Assert - 2
+            Assert.Same(precompiledView.Item, result.Item);
+        }
+
+        [Fact]
+        public async Task CompileAsync_PrecompiledViewWithChecksum_CanReusePrecompiledViewIfContentChangesToMatch()
+        {
+            // Arrange
+            var path = "/Views/Home/Index.cshtml";
+
+            var fileProvider = new TestFileProvider();
+            var fileInfo = fileProvider.AddFile(path, "some other content");
+
+            var expected1 = new CompiledViewDescriptor();
+
+            var precompiledView = new CompiledViewDescriptor
+            {
+                RelativePath = path,
+                Item = new TestRazorCompiledItem(typeof(string), "mvc.1.0.view", path, new object[]
+                {
+                    new RazorSourceChecksumAttribute("SHA1", GetChecksum("some content"), path),
+                }),
+            };
+
+            var viewCompiler = GetViewCompiler(fileProvider, precompiledViews: new[] { precompiledView });
+            viewCompiler.Compile = _ => expected1;
+
+            // Act - 1
+            var result = await viewCompiler.CompileAsync(path);
+
+            // Assert - 1
+            Assert.Same(expected1, result);
+
+            // Act - 2
+            fileInfo.Content = "some content";
+            fileProvider.GetChangeToken(path).HasChanged = true;
+            result = await viewCompiler.CompileAsync(path);
+
+            // Assert - 2
+            Assert.Same(precompiledView.Item, result.Item);
+        }
+
+        [Fact]
+        public async Task CompileAsync_PrecompiledViewWithChecksum_CanRecompileWhenViewImportChanges()
+        {
+            // Arrange
+            var path = "/Views/Home/Index.cshtml";
+            var importPath = "/Views/_ViewImports.cshtml";
+
+            var fileProvider = new TestFileProvider();
+            var fileInfo = fileProvider.AddFile(path, "some content");
+            var importFileInfo = fileProvider.AddFile(importPath, "some import");
+
+            var expected2 = new CompiledViewDescriptor();
+
+            var precompiledView = new CompiledViewDescriptor
+            {
+                RelativePath = path,
+                Item = new TestRazorCompiledItem(typeof(string), "mvc.1.0.view", path, new object[]
+                {
+                    new RazorSourceChecksumAttribute("SHA1", GetChecksum("some content"), path),
+                    new RazorSourceChecksumAttribute("SHA1", GetChecksum("some import"), importPath),
+                }),
+            };
+
+            var viewCompiler = GetViewCompiler(fileProvider, precompiledViews: new[] { precompiledView });
+
+            // Act - 1
+            var result = await viewCompiler.CompileAsync(path);
+
+            // Assert - 1
+            Assert.Same(precompiledView.Item, result.Item);
+
+            // Act - 2
+            importFileInfo.Content = "some import changed";
+            fileProvider.GetChangeToken(importPath).HasChanged = true;
+            viewCompiler.Compile = _ => expected2;
+            result = await viewCompiler.CompileAsync(path);
+
+            // Assert - 2
+            Assert.Same(expected2, result);
         }
 
         [Fact]
@@ -273,18 +528,23 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
             var path1 = "/Views/Home/Index.cshtml";
             var path2 = "/Views/Home/About.cshtml";
             var waitDuration = TimeSpan.FromSeconds(20);
+
             var fileProvider = new TestFileProvider();
             fileProvider.AddFile(path1, "Index content");
             fileProvider.AddFile(path2, "About content");
+
             var resetEvent1 = new AutoResetEvent(initialState: false);
             var resetEvent2 = new ManualResetEvent(initialState: false);
-            var cache = GetViewCompiler(fileProvider);
+
             var compilingOne = false;
             var compilingTwo = false;
+
             var result1 = new CompiledViewDescriptor();
             var result2 = new CompiledViewDescriptor();
 
-            cache.Compile = path =>
+            var compiler = GetViewCompiler(fileProvider);
+
+            compiler.Compile = path =>
             {
                 if (path == path1)
                 {
@@ -324,8 +584,8 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
             };
 
             // Act
-            var task1 = Task.Run(() => cache.CompileAsync(path1));
-            var task2 = Task.Run(() => cache.CompileAsync(path2));
+            var task1 = Task.Run(() => compiler.CompileAsync(path1));
+            var task2 = Task.Run(() => compiler.CompileAsync(path2));
 
             // Event 1
             resetEvent1.Set();
@@ -507,7 +767,7 @@ this should fail";
             var applicationPartManager = new ApplicationPartManager();
             var referenceManager = new DefaultRazorReferenceManager(
                 applicationPartManager,
-                new TestOptionsManager<RazorViewEngineOptions>());
+                Options.Create(new RazorViewEngineOptions()));
             var compiler = GetViewCompiler(
                 compilationCallback: compilationCallback,
                 referenceManager: referenceManager);
@@ -521,56 +781,103 @@ this should fail";
             Assert.NotNull(result);
         }
 
+        [Fact]
+        public void CompileAndEmit_DoesNotThrowIfDebugTypeIsEmbedded()
+        {
+            // Arrange
+            var referenceManager = CreateReferenceManager(Options.Create(new RazorViewEngineOptions()));
+            var csharpCompiler = new TestCSharpCompiler(referenceManager, Mock.Of<IHostingEnvironment>())
+            {
+                EmitOptionsSettable = new EmitOptions(debugInformationFormat: DebugInformationFormat.Embedded),
+            };
+
+            var compiler = GetViewCompiler(csharpCompiler: csharpCompiler);
+            var codeDocument = RazorCodeDocument.Create(RazorSourceDocument.Create("Hello world", "some-relative-path.cshtml"));
+
+            // Act
+            var result = compiler.CompileAndEmit(codeDocument, "public class Test{}");
+
+            // Assert
+            Assert.NotNull(result);
+        }
+
+        [Fact]
+        public void CompileAndEmit_WorksIfEmitPdbIsNotSet()
+        {
+            // Arrange
+            var referenceManager = CreateReferenceManager(Options.Create(new RazorViewEngineOptions()));
+            var csharpCompiler = new TestCSharpCompiler(referenceManager, Mock.Of<IHostingEnvironment>())
+            {
+                EmitPdbSettable = false,
+            };
+
+            var compiler = GetViewCompiler(csharpCompiler: csharpCompiler);
+            var codeDocument = RazorCodeDocument.Create(RazorSourceDocument.Create("Hello world", "some-relative-path.cshtml"));
+
+            // Act
+            var result = compiler.CompileAndEmit(codeDocument, "public class Test{}");
+
+            // Assert
+            Assert.NotNull(result);
+        }
+
         private static TestRazorViewCompiler GetViewCompiler(
             TestFileProvider fileProvider = null,
             Action<RoslynCompilationContext> compilationCallback = null,
             RazorReferenceManager referenceManager = null,
-            IList<CompiledViewDescriptor> precompiledViews = null)
+            IList<CompiledViewDescriptor> precompiledViews = null,
+            CSharpCompiler csharpCompiler = null)
         {
             fileProvider = fileProvider ?? new TestFileProvider();
             var accessor = Mock.Of<IRazorViewEngineFileProviderAccessor>(a => a.FileProvider == fileProvider);
 
             compilationCallback = compilationCallback ?? (_ => { });
-            var options = new TestOptionsManager<RazorViewEngineOptions>();
+            var options = Options.Create(new RazorViewEngineOptions());
             if (referenceManager == null)
             {
-                var applicationPartManager = new ApplicationPartManager();
-                var assembly = typeof(RazorViewCompilerTest).Assembly;
-                applicationPartManager.ApplicationParts.Add(new AssemblyPart(assembly));
-                applicationPartManager.FeatureProviders.Add(new MetadataReferenceFeatureProvider());
-
-                referenceManager = new DefaultRazorReferenceManager(applicationPartManager, options);
+                referenceManager = CreateReferenceManager(options);
             }
 
             precompiledViews = precompiledViews ?? Array.Empty<CompiledViewDescriptor>();
 
-            var projectSystem = new FileProviderRazorProject(accessor);
-            var templateEngine = new RazorTemplateEngine(RazorEngine.Create(), projectSystem)
+            var hostingEnvironment = Mock.Of<IHostingEnvironment>(e => e.ContentRootPath == "BasePath");
+            var fileSystem = new FileProviderRazorProjectFileSystem(accessor, hostingEnvironment);
+            var projectEngine = RazorProjectEngine.Create(RazorConfiguration.Default, fileSystem, builder =>
             {
-                Options =
-                {
-                    ImportsFileName = "_ViewImports.cshtml",
-                }
-            };
+                RazorExtensions.Register(builder);
+            });
+
+            csharpCompiler = csharpCompiler ?? new CSharpCompiler(referenceManager, hostingEnvironment);
+
             var viewCompiler = new TestRazorViewCompiler(
                 fileProvider,
-                templateEngine,
-                new CSharpCompiler(referenceManager, Mock.Of<IHostingEnvironment>()),
+                projectEngine,
+                csharpCompiler,
                 compilationCallback,
                 precompiledViews);
             return viewCompiler;
+        }
+
+        private static RazorReferenceManager CreateReferenceManager(IOptions<RazorViewEngineOptions> options)
+        {
+            var applicationPartManager = new ApplicationPartManager();
+            var assembly = typeof(RazorViewCompilerTest).Assembly;
+            applicationPartManager.ApplicationParts.Add(new AssemblyPart(assembly));
+            applicationPartManager.FeatureProviders.Add(new MetadataReferenceFeatureProvider());
+
+            return new DefaultRazorReferenceManager(applicationPartManager, options);
         }
 
         private class TestRazorViewCompiler : RazorViewCompiler
         {
             public TestRazorViewCompiler(
                 TestFileProvider fileProvider,
-                RazorTemplateEngine templateEngine,
+                RazorProjectEngine projectEngine,
                 CSharpCompiler csharpCompiler,
                 Action<RoslynCompilationContext> compilationCallback,
                 IList<CompiledViewDescriptor> precompiledViews,
                 Func<string, CompiledViewDescriptor> compile = null) :
-                base(fileProvider, templateEngine, csharpCompiler, compilationCallback, precompiledViews, NullLogger.Instance)
+                base(fileProvider, projectEngine, csharpCompiler, compilationCallback, precompiledViews, new MemoryCache(new MemoryCacheOptions()), NullLogger.Instance)
             {
                 Compile = compile;
                 if (Compile == null)
@@ -589,6 +896,22 @@ this should fail";
             {
                 return Compile(relativePath);
             }
+        }
+
+        private class TestCSharpCompiler : CSharpCompiler
+        {
+            public TestCSharpCompiler(RazorReferenceManager manager, IHostingEnvironment hostingEnvironment)
+                : base(manager, hostingEnvironment)
+            {
+            }
+
+            public EmitOptions EmitOptionsSettable { get; set; }
+
+            public bool EmitPdbSettable { get; set; }
+
+            public override EmitOptions EmitOptions => EmitOptionsSettable;
+
+            public override bool EmitPdb => EmitPdbSettable;
         }
     }
 }

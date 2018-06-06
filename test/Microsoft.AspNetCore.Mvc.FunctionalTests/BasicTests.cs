@@ -3,14 +3,15 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Text;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc.Formatters;
+using BasicWebSite.Models;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Mvc.FunctionalTests
@@ -25,7 +26,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
 
         public BasicTests(MvcTestFixture<BasicWebSite.Startup> fixture)
         {
-            Client = fixture.Client;
+            Client = fixture.CreateDefaultClient();
         }
 
         public HttpClient Client { get; }
@@ -208,7 +209,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             Assert.Equal(0, response.Content.Headers.ContentLength);
 
             var responseBytes = await response.Content.ReadAsByteArrayAsync();
-            Assert.Equal(0, responseBytes.Length);
+            Assert.Empty(responseBytes);
         }
 
         [Fact]
@@ -224,7 +225,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             Assert.Equal(0, response.Content.Headers.ContentLength);
 
             var responseBytes = await response.Content.ReadAsByteArrayAsync();
-            Assert.Equal(0, responseBytes.Length);
+            Assert.Empty(responseBytes);
         }
 
         [Theory]
@@ -245,12 +246,10 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
         public async Task JsonHelper_RendersJson_WithCamelCaseNames()
         {
             // Arrange
-            var json = "{\"id\":9000,\"fullName\":\"John <b>Smith</b>\"}";
-            var expectedBody = string.Format(
-                @"<script type=""text/javascript"">
-    var json = {0};
-</script>",
-                json);
+            var expectedBody =
+@"<script type=""text/javascript"">
+    var json = {""id"":9000,""fullName"":""John \u003cb\u003eSmith\u003c/b\u003e""};
+</script>";
 
             // Act
             var response = await Client.GetAsync("Home/JsonHelperInView");
@@ -375,6 +374,260 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
 
             // Assert
             Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task UsingPageRouteParameterInConventionalRouteWorks()
+        {
+            // Arrange
+            var expected = "ConventionalRoute - Hello from mypage";
+
+            // Act
+            var response = await Client.GetStringAsync("/PageRoute/ConventionalRoute/mypage");
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task UsingPageRouteParameterInAttributeRouteWorks()
+        {
+            // Arrange
+            var expected = "AttributeRoute - Hello from test-page";
+
+            // Act
+            var response = await Client.GetStringAsync("/PageRoute/Attribute/test-page");
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task RedirectToAction_WithEmptyActionName_UsesAmbientValue()
+        {
+            // Arrange
+            var product = new Dictionary<string, string>
+            {
+                { "SampleInt", "20" }
+            };
+
+            // Act
+            var response = await Client.PostAsync("/Home/Product", new FormUrlEncodedContent(product));
+
+            // Assert
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+            Assert.NotNull(response.Headers.Location);
+            Assert.Equal("/Home/Product", response.Headers.Location.ToString());
+
+            var responseBody = await Client.GetStringAsync("/Home/Product");
+            Assert.Equal("Get Product", responseBody);
+        }
+        [Fact]
+        public async Task ActionMethod_ReturningActionMethodOfT_WithBadRequest()
+        {
+            // Arrange
+            var url = "ActionResultOfT/GetProduct";
+
+            // Act
+            var response = await Client.GetAsync(url);
+
+            // Assert
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task ActionMethod_ReturningActionMethodOfT()
+        {
+            // Arrange
+            var url = "ActionResultOfT/GetProduct?productId=10";
+
+            // Act
+            var response = await Client.GetStringAsync(url);
+
+            // Assert
+            var result = JsonConvert.DeserializeObject<Product>(response);
+            Assert.Equal(10, result.SampleInt);
+        }
+
+        [Fact]
+        public async Task ActionMethod_ReturningSequenceOfObjectsWrappedInActionResultOfT()
+        {
+            // Arrange
+            var url = "ActionResultOfT/GetProductsAsync";
+
+            // Act
+            var response = await Client.GetStringAsync(url);
+
+            // Assert
+            var result = JsonConvert.DeserializeObject<Product[]>(response);
+            Assert.Equal(2, result.Length);
+        }
+
+        [Fact]
+        public async Task TestingInfrastructure_InvokesCreateDefaultBuilder()
+        {
+            // Act
+            var response = await Client.GetStringAsync("Testing/Builder");
+
+            // Assert
+            Assert.Equal("true", response);
+        }
+
+        [Fact]
+        public async Task ApplicationAssemblyPartIsListedAsFirstAssembly()
+        {
+            // Act
+            var response = await Client.GetStringAsync("Home/GetAssemblyPartData");
+            var assemblyParts = JsonConvert.DeserializeObject<IList<string>>(response);
+            var expected = new[]
+            {
+                "BasicWebSite",
+                "Microsoft.AspNetCore.Mvc.TagHelpers",
+                "Microsoft.AspNetCore.Mvc.Razor",
+            };
+
+            // Assert
+            Assert.Equal(expected, assemblyParts);
+        }
+
+        [Fact]
+        public async Task ViewDataProperties_AreTransferredToViews()
+        {
+            // Act
+            var document = await Client.GetHtmlDocumentAsync("ViewDataProperty/ViewDataPropertyToView");
+
+            // Assert
+            var message = document.QuerySelector("#message").TextContent;
+            Assert.Equal("Message set in action", message);
+
+            var filterMessage = document.QuerySelector("#filter-message").TextContent;
+            Assert.Equal("Value set in OnActionExecuting", filterMessage);
+
+            var title = document.QuerySelector("title").TextContent;
+            Assert.Equal("View Data Property Sample", title);
+        }
+
+        [Fact]
+        public async Task ViewDataProperties_AreTransferredToViewComponents()
+        {
+            // Act
+            var document = await Client.GetHtmlDocumentAsync("ViewDataProperty/ViewDataPropertyToViewComponent");
+
+            // Assert
+            var message = document.QuerySelector("#message").TextContent;
+            Assert.Equal("Message set in action", message);
+
+            var title = document.QuerySelector("title").TextContent;
+            Assert.Equal("View Data Property Sample", title);
+        }
+
+        [Fact]
+        public async Task BindPropertiesAttribute_CanBeAppliedToControllers()
+        {
+            // Arrange
+            var formContent = new Dictionary<string, string>
+            {
+                { "Name", "TestName" },
+                { "Id", "10" },
+            };
+
+            // Act
+            var response = await Client.PostAsync("BindProperties/Action", new FormUrlEncodedContent(formContent));
+
+            // Assert
+            await response.AssertStatusCodeAsync(HttpStatusCode.OK);
+            var content = await response.Content.ReadAsStringAsync();
+            var data = JsonConvert.DeserializeObject<BindPropertyControllerData>(content);
+
+            Assert.Equal("TestName", data.Name);
+            Assert.Equal(10, data.Id);
+        }
+
+        [Fact]
+        public async Task BindPropertiesAttribute_DoesNotApplyToPropertiesWithBindingInfo()
+        {
+            // Arrange
+            var formContent = new Dictionary<string, string>
+            {
+                { "Id", "10" },
+                { "FromRoute", "12" },
+                { "CustomBound", "Test" },
+            };
+
+            // Act
+            var response = await Client.PostAsync("BindProperties/Action", new FormUrlEncodedContent(formContent));
+
+            // Assert
+            await response.AssertStatusCodeAsync(HttpStatusCode.OK);
+            var content = await response.Content.ReadAsStringAsync();
+            var data = JsonConvert.DeserializeObject<BindPropertyControllerData>(content);
+
+            Assert.Equal(10, data.Id);
+            Assert.Null(data.IdFromRoute);
+            Assert.Equal("CustomBoundValue", data.CustomBound);
+        }
+
+        [Fact]
+        public async Task BindPropertiesAttribute_DoesNotCausePropertiesWithBindNeverAttributeToBeModelBound()
+        {
+            // Arrange
+            var formContent = new Dictionary<string, string>
+            {
+                { "BindNeverProperty", "Hello world" },
+            };
+
+            // Act
+            var response = await Client.PostAsync("BindProperties/Action", new FormUrlEncodedContent(formContent));
+
+            // Assert
+            await response.AssertStatusCodeAsync(HttpStatusCode.OK);
+            var content = await response.Content.ReadAsStringAsync();
+            var data = JsonConvert.DeserializeObject<BindPropertyControllerData>(content);
+
+            Assert.Null(data.BindNeverProperty);
+        }
+
+        [Fact]
+        public async Task BindPropertiesAttributeWithSupportsGet_BindsOnNonGet()
+        {
+            // Arrange
+            var formContent = new Dictionary<string, string>
+            {
+                {  "Name", "TestName" },
+            };
+
+            // Act
+            var response = await Client.PostAsync("BindPropertiesSupportsGet/Action", new FormUrlEncodedContent(formContent));
+
+            // Assert
+            await response.AssertStatusCodeAsync(HttpStatusCode.OK);
+            var content = await response.Content.ReadAsStringAsync();
+            Assert.Equal("TestName", content);
+        }
+
+        [Fact]
+        public async Task BindPropertiesAttributeWithSupportsGet_BindsOnGet()
+        {
+            // Act
+            var response = await Client.GetAsync("BindPropertiesSupportsGet/Action?Name=OnGetTestName");
+
+            // Assert
+            await response.AssertStatusCodeAsync(HttpStatusCode.OK);
+            var content = await response.Content.ReadAsStringAsync();
+            Assert.Equal("OnGetTestName", content);
+        }
+
+        public class BindPropertyControllerData
+        {
+            public string Name { get; set; }
+
+            public int? Id { get; set; }
+
+            public int? IdFromRoute { get; set; }
+
+            public string CustomBound { get; set; }
+
+            public string BindNeverProperty { get; set; }
         }
     }
 }

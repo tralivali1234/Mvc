@@ -18,7 +18,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
     {
         public ApiExplorerTest(MvcTestFixture<ApiExplorerWebSite.Startup> fixture)
         {
-            Client = fixture.Client;
+            Client = fixture.CreateDefaultClient();
         }
 
         public HttpClient Client { get; }
@@ -478,6 +478,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
 
         [Theory]
         [InlineData("GetProduct", "ApiExplorerWebSite.Product")]
+        [InlineData("GetActionResultProduct", "ApiExplorerWebSite.Product")]
         [InlineData("GetInt", "System.Int32")]
         [InlineData("GetTaskOfProduct", "ApiExplorerWebSite.Product")]
         [InlineData("GetTaskOfInt", "System.Int32")]
@@ -1064,6 +1065,19 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             Assert.Equal("ApiExplorerInboundOutbound/SuppressedForLinkGeneration", description.RelativePath);
         }
 
+        [Fact]
+        public async Task ApiBehavior_AddsMultipartFormDataConsumesConstraint_ForActionsWithFormFileParameters()
+        {
+            // Act
+            var body = await Client.GetStringAsync("ApiExplorerApiController/ActionWithFormFileCollectionParameter");
+            var result = JsonConvert.DeserializeObject<List<ApiExplorerData>>(body);
+
+            // Assert
+            var description = Assert.Single(result);
+            var requestFormat = Assert.Single(description.SupportedRequestFormats);
+            Assert.Equal("multipart/form-data", requestFormat.MediaType);
+        }
+
         private IEnumerable<string> GetSortedMediaTypes(ApiExplorerResponseType apiResponseType)
         {
             return apiResponseType.ResponseFormats
@@ -1083,6 +1097,8 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             public string RelativePath { get; set; }
 
             public List<ApiExplorerResponseType> SupportedResponseTypes { get; } = new List<ApiExplorerResponseType>();
+
+            public List<ApiExplorerRequestFormat> SupportedRequestFormats { get; } = new List<ApiExplorerRequestFormat>();
         }
 
         // Used to serialize data between client and server
@@ -1116,9 +1132,18 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             public string ResponseType { get; set; }
 
             public int StatusCode { get; set; }
+
+            public bool IsDefaultResponse { get; set; }
         }
 
         private class ApiExplorerResponseFormat
+        {
+            public string MediaType { get; set; }
+
+            public string FormatterType { get; set; }
+        }
+
+        private class ApiExplorerRequestFormat
         {
             public string MediaType { get; set; }
 

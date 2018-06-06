@@ -57,7 +57,7 @@ namespace Microsoft.AspNetCore.Mvc
             var services = new ServiceCollection();
             services.AddSingleton<IHostingEnvironment>(GetHostingEnvironment());
 
-            // Register a mock implementation of each service, AddMvcServices should add another implemenetation.
+            // Register a mock implementation of each service, AddMvcServices should add another implementation.
             foreach (var serviceType in MutliRegistrationServiceTypes)
             {
                 var mockType = typeof(Mock<>).MakeGenericType(serviceType.Key);
@@ -216,7 +216,10 @@ namespace Microsoft.AspNetCore.Mvc
                 feature => Assert.IsType<ViewComponentFeatureProvider>(feature),
                 feature => Assert.IsType<MetadataReferenceFeatureProvider>(feature),
                 feature => Assert.IsType<TagHelperFeatureProvider>(feature),
+                feature => Assert.IsType<RazorCompiledItemFeatureProvider>(feature),
+#pragma warning disable CS0618 // Type or member is obsolete
                 feature => Assert.IsType<ViewsFeatureProvider>(feature));
+#pragma warning restore CS0618 // Type or member is obsolete
         }
 
         [Fact]
@@ -350,6 +353,13 @@ namespace Microsoft.AspNetCore.Mvc
                         }
                     },
                     {
+                        typeof(IConfigureOptions<ApiBehaviorOptions>),
+                        new Type[]
+                        {
+                            typeof(ApiBehaviorOptionsSetup),
+                        }
+                    },
+                    {
                         typeof(IConfigureOptions<MvcViewOptions>),
                         new Type[]
                         {
@@ -363,6 +373,27 @@ namespace Microsoft.AspNetCore.Mvc
                         {
                             typeof(RazorViewEngineOptionsSetup),
                             typeof(RazorPagesRazorViewEngineOptionsSetup),
+                        }
+                    },
+                    {
+                        typeof(IPostConfigureOptions<MvcOptions>),
+                        new[]
+                        {
+                            typeof(MvcOptions).Assembly.GetType("Microsoft.AspNetCore.Mvc.Infrastructure.MvcOptionsConfigureCompatibilityOptions", throwOnError: true),
+                        }
+                    },
+                    {
+                        typeof(IPostConfigureOptions<RazorPagesOptions>),
+                        new[]
+                        {
+                            typeof(RazorPagesOptions).Assembly.GetType("Microsoft.AspNetCore.Mvc.RazorPages.RazorPagesOptionsConfigureCompatibilityOptions", throwOnError: true),
+                        }
+                    },
+                    {
+                        typeof(IPostConfigureOptions<MvcJsonOptions>),
+                        new[]
+                        {
+                            typeof(MvcJsonOptions).Assembly.GetType("Microsoft.AspNetCore.Mvc.MvcJsonOptionsConfigureCompatibilityOptions", throwOnError: true),
                         }
                     },
                     {
@@ -411,6 +442,8 @@ namespace Microsoft.AspNetCore.Mvc
                             typeof(CorsApplicationModelProvider),
                             typeof(AuthorizationApplicationModelProvider),
                             typeof(TempDataApplicationModelProvider),
+                            typeof(ViewDataAttributeApplicationModelProvider),
+                            typeof(ApiBehaviorApplicationModelProvider),
                         }
                     },
                     {
@@ -437,6 +470,8 @@ namespace Microsoft.AspNetCore.Mvc
                             typeof(AuthorizationPageApplicationModelProvider),
                             typeof(DefaultPageApplicationModelProvider),
                             typeof(TempDataFilterPageApplicationModelProvider),
+                            typeof(ViewDataAttributePageApplicationModelProvider),
+                            typeof(ResponseCacheFilterApplicationModelProvider),
                         }
                     },
                 };

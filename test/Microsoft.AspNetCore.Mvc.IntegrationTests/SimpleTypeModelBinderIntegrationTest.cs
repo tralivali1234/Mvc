@@ -2,7 +2,6 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -57,7 +56,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             // ModelState
             Assert.True(modelState.IsValid);
 
-            Assert.Equal(1, modelState.Keys.Count());
+            Assert.Single(modelState.Keys);
             var key = Assert.Single(modelState.Keys, k => k == "CustomParameter.Address.Zip");
             Assert.Equal("1", modelState[key].AttemptedValue);
             Assert.Equal("1", modelState[key].RawValue);
@@ -101,7 +100,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             // ModelState
             Assert.True(modelState.IsValid);
 
-            Assert.Equal(1, modelState.Keys.Count());
+            Assert.Single(modelState.Keys);
             var key = Assert.Single(modelState.Keys, k => k == "Address.Zip");
             Assert.Equal("1", modelState[key].AttemptedValue);
             Assert.Equal("1", modelState[key].RawValue);
@@ -144,7 +143,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             // ModelState
             Assert.True(modelState.IsValid);
 
-            Assert.Equal(1, modelState.Keys.Count());
+            Assert.Single(modelState.Keys);
             var key = Assert.Single(modelState.Keys);
             Assert.Equal("Parameter1", key);
             Assert.Equal("someValue", modelState[key].AttemptedValue);
@@ -188,7 +187,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             // ModelState
             Assert.True(modelState.IsValid);
 
-            Assert.Equal(1, modelState.Keys.Count());
+            Assert.Single(modelState.Keys);
             var key = Assert.Single(modelState.Keys);
             Assert.Equal("Parameter1", key);
             Assert.Equal("32,000.99", modelState[key].AttemptedValue);
@@ -232,7 +231,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
             // ModelState
             Assert.True(modelState.IsValid);
 
-            Assert.Equal(1, modelState.Keys.Count());
+            Assert.Single(modelState.Keys);
             var key = Assert.Single(modelState.Keys);
             Assert.Equal("Parameter1", key);
             Assert.Equal("someValue,otherValue", modelState[key].AttemptedValue);
@@ -274,7 +273,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
 
             // ModelState
             Assert.False(modelState.IsValid);
-            Assert.Equal(1, modelState.Count);
+            Assert.Single(modelState);
             Assert.Equal(1, modelState.ErrorCount);
 
             var key = Assert.Single(modelState.Keys);
@@ -304,20 +303,22 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
                     binding.ModelBindingMessageProvider.SetNonPropertyAttemptedValueIsInvalidAccessor(
                         (value) => $"Hmm, '{ value }' is not a valid value.");
                 });
-            var parameterBinder = ModelBindingTestHelper.GetParameterBinder(metadataProvider);
+
+            var testContext = ModelBindingTestHelper.GetTestContext(
+                request =>
+                {
+                    request.QueryString = QueryString.Create("Parameter1", "abcd");
+                },
+                metadataProvider: metadataProvider);
+
+            var modelState = testContext.ModelState;
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder(testContext.HttpContext.RequestServices);
             var parameter = new ParameterDescriptor()
             {
                 Name = "Parameter1",
                 BindingInfo = new BindingInfo(),
                 ParameterType = parameterType
             };
-
-            var testContext = ModelBindingTestHelper.GetTestContext(request =>
-            {
-                request.QueryString = QueryString.Create("Parameter1", "abcd");
-            });
-
-            var modelState = testContext.ModelState;
 
             // Act
             var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);
@@ -332,7 +333,7 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
 
             // ModelState
             Assert.False(modelState.IsValid);
-            Assert.Equal(1, modelState.Count);
+            Assert.Single(modelState);
             Assert.Equal(1, modelState.ErrorCount);
 
             var key = Assert.Single(modelState.Keys);
@@ -405,8 +406,16 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
                     binding.ModelBindingMessageProvider.SetValueMustNotBeNullAccessor(
                         value => $"Hurts when '{ value }' is provided.");
                 });
-            var parameterBinder = ModelBindingTestHelper.GetParameterBinder(metadataProvider);
 
+            var testContext = ModelBindingTestHelper.GetTestContext(
+                request =>
+                {
+                    request.QueryString = QueryString.Create("Parameter1", string.Empty);
+                },
+                metadataProvider: metadataProvider);
+
+            var modelState = testContext.ModelState;
+            var parameterBinder = ModelBindingTestHelper.GetParameterBinder(testContext.HttpContext.RequestServices);
             var parameter = new ParameterDescriptor
             {
                 Name = "Parameter1",
@@ -414,11 +423,6 @@ namespace Microsoft.AspNetCore.Mvc.IntegrationTests
 
                 ParameterType = parameterType
             };
-            var testContext = ModelBindingTestHelper.GetTestContext(request =>
-            {
-                request.QueryString = QueryString.Create("Parameter1", string.Empty);
-            });
-            var modelState = testContext.ModelState;
 
             // Act
             var modelBindingResult = await parameterBinder.BindModelAsync(parameter, testContext);

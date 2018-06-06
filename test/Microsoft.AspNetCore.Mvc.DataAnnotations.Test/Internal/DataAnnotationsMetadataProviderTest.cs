@@ -10,13 +10,19 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
 using Microsoft.AspNetCore.Testing;
-using Microsoft.Extensions.Internal;
 using Microsoft.Extensions.Localization;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 {
+    public enum TestEnum
+    {
+        [Display(Name = "DisplayNameValue")]
+        DisplayNameValue
+    }
+
     public class DataAnnotationsMetadataProviderTest
     {
         // Includes attributes with a 'simple' effect on display details.
@@ -38,12 +44,32 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
                     { new DisplayFormatAttribute() { ConvertEmptyStringToNull = true }, d => d.ConvertEmptyStringToNull, true },
                     { new DisplayFormatAttribute() { DataFormatString = "{0:G}" }, d => d.DisplayFormatString, "{0:G}" },
                     {
+                        new DisplayFormatAttribute() { DataFormatString = "{0:G}" },
+                        d => d.DisplayFormatStringProvider(),
+                        "{0:G}"
+                    },
+                    {
                         new DisplayFormatAttribute() { DataFormatString = "{0:G}", ApplyFormatInEditMode = true },
                         d => d.EditFormatString,
                         "{0:G}"
                     },
+                    {
+                        new DisplayFormatAttribute() { DataFormatString = "{0:G}", ApplyFormatInEditMode = true },
+                        d => d.EditFormatStringProvider(),
+                        "{0:G}"
+                    },
+                    {
+                        new DisplayFormatAttribute() { DataFormatString = "{0:G}", ApplyFormatInEditMode = true },
+                        d => d.HasNonDefaultEditFormat,
+                        true
+                    },
                     { new DisplayFormatAttribute() { HtmlEncode = false }, d => d.HtmlEncode, false },
                     { new DisplayFormatAttribute() { NullDisplayText = "(null)" }, d => d.NullDisplayText, "(null)" },
+                    {
+                        new DisplayFormatAttribute() { NullDisplayText = "(null)" },
+                        d => d.NullDisplayTextProvider(),
+                        "(null)"
+                    },
 
                     { new DisplayNameAttribute("DisplayNameValue"), d => d.DisplayName(), "DisplayNameValue"},
                     { new HiddenInputAttribute() { DisplayValue = false }, d => d.HideSurroundingHtml, true },
@@ -65,11 +91,11 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(new object[] { attribute }));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(new object[] { attribute }));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -84,7 +110,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var dataType = new DataTypeAttribute(DataType.Currency);
@@ -92,7 +118,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new[] { dataType, };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -106,7 +132,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var dataType = new DataTypeAttribute(DataType.Time); // Has a non-null DisplayFormat.
@@ -117,7 +143,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { dataType, displayFormat, };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -131,14 +157,14 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var editable = new EditableAttribute(allowEdit: false);
 
             var attributes = new Attribute[] { editable };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new BindingMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new BindingMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateBindingMetadata(context);
@@ -152,14 +178,14 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var editable = new EditableAttribute(allowEdit: true);
 
             var attributes = new Attribute[] { editable };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new BindingMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new BindingMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateBindingMetadata(context);
@@ -172,7 +198,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         public void CreateDisplayMetadata_DisplayAttribute_OverridesDisplayNameAttribute()
         {
             // Arrange
-            var localizationOptions = new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>();
+            var localizationOptions = Options.Create(new MvcDataAnnotationsLocalizationOptions());
 
             var provider = new DataAnnotationsMetadataProvider(
                 localizationOptions,
@@ -186,7 +212,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { display, displayName };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -199,7 +225,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         public void CreateDisplayMetadata_DisplayAttribute_OverridesDisplayNameAttribute_IfNameEmpty()
         {
             // Arrange
-            var localizationOptions = new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>();
+            var localizationOptions = Options.Create(new MvcDataAnnotationsLocalizationOptions());
 
             var provider = new DataAnnotationsMetadataProvider(
                 localizationOptions,
@@ -213,7 +239,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { display, displayName };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -226,7 +252,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         public void CreateDisplayMetadata_DisplayAttribute_DoesNotOverrideDisplayNameAttribute_IfNameNull()
         {
             // Arrange
-            var localizationOptions = new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>();
+            var localizationOptions = Options.Create(new MvcDataAnnotationsLocalizationOptions());
 
             var provider = new DataAnnotationsMetadataProvider(
                 localizationOptions,
@@ -240,13 +266,101 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { display, displayName };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
 
             // Assert
             Assert.Equal("DisplayNameAttributeValue", context.DisplayMetadata.DisplayName());
+        }
+
+        [Fact]
+        public void CreateDisplayMetadata_DisplayNameAttribute_OnEnum_CompatSwitchWorks()
+        {
+            // Arrange
+            var unsharedLocalizer = new Mock<IStringLocalizer>(MockBehavior.Strict);
+            unsharedLocalizer
+                .Setup(s => s["DisplayNameValue"])
+                .Returns(new LocalizedString("DisplaynameValue", "didn't use shared"));
+
+            var sharedLocalizer = new Mock<IStringLocalizer>(MockBehavior.Strict);
+            sharedLocalizer
+                .Setup(s => s["DisplayNameValue"])
+                .Returns(() => new LocalizedString("DisplayNameValue", "used shared"));
+
+            var stringLocalizerFactoryMock = new Mock<IStringLocalizerFactory>(MockBehavior.Strict);
+            stringLocalizerFactoryMock
+                .Setup(s => s.Create(typeof(TestEnum)))
+                .Returns(() => unsharedLocalizer.Object);
+            stringLocalizerFactoryMock
+                .Setup(s => s.Create(typeof(EmptyClass)))
+                .Returns(() => sharedLocalizer.Object);
+
+            var localizationOptions = Options.Create(new MvcDataAnnotationsLocalizationOptions());
+            localizationOptions.Value.AllowDataAnnotationsLocalizationForEnumDisplayAttributes = false;
+            localizationOptions.Value.DataAnnotationLocalizerProvider = (type, stringLocalizerFactory) =>
+            {
+                return stringLocalizerFactory.Create(typeof(EmptyClass));
+            };
+
+            var provider = new DataAnnotationsMetadataProvider(
+                localizationOptions,
+                stringLocalizerFactory: stringLocalizerFactoryMock.Object);
+
+            var displayName = new DisplayNameAttribute("DisplayNameValue");
+
+            var attributes = new Attribute[] { displayName };
+            var key = ModelMetadataIdentity.ForType(typeof(TestEnum));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
+
+            // Act
+            provider.CreateDisplayMetadata(context);
+
+            // Assert
+            Assert.Collection(context.DisplayMetadata.EnumGroupedDisplayNamesAndValues, 
+                (e) => Assert.Equal("didn't use shared", e.Key.Name));
+        }
+
+        [Fact]
+        public void CreateDisplayMetadata_DisplayNameAttribute_OnEnum_CompatShimOn()
+        {
+            // Arrange
+            var sharedLocalizer = new Mock<IStringLocalizer>(MockBehavior.Strict);
+            sharedLocalizer
+                .Setup(s => s["DisplayNameValue"])
+                .Returns(new LocalizedString("DisplayNameValue", "Name from DisplayNameAttribute"));
+
+            var stringLocalizerFactoryMock = new Mock<IStringLocalizerFactory>(MockBehavior.Strict);
+            stringLocalizerFactoryMock
+                .Setup(s => s.Create(typeof(EmptyClass)))
+                .Returns(() => sharedLocalizer.Object);
+
+            var localizationOptions = Options.Create(new MvcDataAnnotationsLocalizationOptions());
+            localizationOptions.Value.AllowDataAnnotationsLocalizationForEnumDisplayAttributes = true;
+            localizationOptions.Value.DataAnnotationLocalizerProvider = (type, stringLocalizerFactory) =>
+            {
+                return stringLocalizerFactory.Create(typeof(EmptyClass));
+            };
+
+            var provider = new DataAnnotationsMetadataProvider(
+                localizationOptions,
+                stringLocalizerFactory: stringLocalizerFactoryMock.Object);
+
+            var displayName = new DisplayNameAttribute("DisplayNameValue");
+
+            var attributes = new Attribute[] { displayName };
+            var key = ModelMetadataIdentity.ForType(typeof(TestEnum));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
+
+            // Act
+            provider.CreateDisplayMetadata(context);
+
+            // Assert
+            Assert.Collection(context.DisplayMetadata.EnumGroupedDisplayNamesAndValues, (e) =>
+            {
+                Assert.Equal("Name from DisplayNameAttribute", e.Key.Name);
+            });
         }
 
         [Fact]
@@ -263,7 +377,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
                 .Setup(s => s.Create(typeof(EmptyClass)))
                 .Returns(() => sharedLocalizer.Object);
 
-            var localizationOptions = new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>();
+            var localizationOptions = Options.Create(new MvcDataAnnotationsLocalizationOptions());
             localizationOptions.Value.DataAnnotationLocalizerProvider = (type, stringLocalizerFactory) =>
             {
                 return stringLocalizerFactory.Create(typeof(EmptyClass));
@@ -277,7 +391,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { displayName };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -297,8 +411,8 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
                 .Setup(s => s.Create(typeof(EmptyClass)))
                 .Returns(() => sharedLocalizer.Object);
 
-            var options = new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>();
-            bool dataAnnotationLocalizerProviderWasUsed = false;
+            var options = Options.Create(new MvcDataAnnotationsLocalizationOptions());
+            var dataAnnotationLocalizerProviderWasUsed = false;
             options.Value.DataAnnotationLocalizerProvider = (type, stringLocalizerFactory) =>
             {
                 dataAnnotationLocalizerProviderWasUsed = true;
@@ -314,7 +428,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { display };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -330,7 +444,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var display = new DisplayAttribute()
@@ -346,7 +460,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { display };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -367,7 +481,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
                 .Setup(s => s.Create(It.IsAny<Type>()))
                 .Returns(() => stringLocalizer.Object);
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory.Object);
 
             var display = new DisplayAttribute()
@@ -383,7 +497,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { display };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -404,7 +518,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
                 .Setup(s => s.Create(It.IsAny<Type>()))
                 .Returns(() => stringLocalizer.Object);
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory.Object);
 
             var display = new DisplayAttribute()
@@ -420,7 +534,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { display };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -435,7 +549,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var display = new DisplayAttribute()
@@ -451,7 +565,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { display };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -472,7 +586,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
                 .Setup(s => s.Create(It.IsAny<Type>()))
                 .Returns(() => stringLocalizer.Object);
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory.Object);
 
             var display = new DisplayAttribute()
@@ -488,7 +602,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { display };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -503,7 +617,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var display = new DisplayAttribute()
@@ -519,7 +633,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { display };
             var key = ModelMetadataIdentity.ForType(typeof(string));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -547,16 +661,13 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
             stringLocalizerFactoryMock
                 .Setup(f => f.Create(It.IsAny<Type>()))
                 .Returns(stringLocalizer.Object);
-
-            var options = new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>();
+            var options = Options.Create(new MvcDataAnnotationsLocalizationOptions());
             options.Value.DataAnnotationLocalizerProvider = (type, stringLocalizerFactory) =>
             {
                 return stringLocalizerFactory.Create(type);
             };
 
-            var provider = new DataAnnotationsMetadataProvider(
-                options,
-                stringLocalizerFactoryMock.Object);
+            var provider = new DataAnnotationsMetadataProvider(options, stringLocalizerFactoryMock.Object);
 
             var display = new DisplayAttribute()
             {
@@ -567,19 +678,19 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             var attributes = new Attribute[] { display };
             var key = ModelMetadataIdentity.ForType(typeof(DataAnnotationsMetadataProviderTest));
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
 
             // Assert
-            using (new CultureReplacer("en-US", "en-US"))
+            using(new CultureReplacer("en-US", "en-US"))
             {
                 Assert.Equal("name from localizer en-US", context.DisplayMetadata.DisplayName());
                 Assert.Equal("description from localizer en-US", context.DisplayMetadata.Description());
                 Assert.Equal("prompt from localizer en-US", context.DisplayMetadata.Placeholder());
             }
-            using (new CultureReplacer("fr-FR", "fr-FR"))
+            using(new CultureReplacer("fr-FR", "fr-FR"))
             {
                 Assert.Equal("name from localizer fr-FR", context.DisplayMetadata.DisplayName());
                 Assert.Equal("description from localizer fr-FR", context.DisplayMetadata.Description());
@@ -609,12 +720,12 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var key = ModelMetadataIdentity.ForType(type);
             var attributes = new object[0];
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -645,12 +756,12 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var key = ModelMetadataIdentity.ForType(type);
             var attributes = new object[0];
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -779,12 +890,12 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var key = ModelMetadataIdentity.ForType(type);
             var attributes = new object[0];
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -812,21 +923,21 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
             var attributes = new object[0];
 
             var key = ModelMetadataIdentity.ForType(type);
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             var stringLocalizer = new Mock<IStringLocalizer>(MockBehavior.Strict);
             stringLocalizer
                 .Setup(s => s[It.IsAny<string>()])
                 .Returns<string>((index) => new LocalizedString(index, index + " value"));
 
-            var stringLocalizerFactory = new Mock<IStringLocalizerFactory>(MockBehavior.Strict);
-            stringLocalizerFactory
+            var stringLocalizerFactoryMock = new Mock<IStringLocalizerFactory>(MockBehavior.Strict);
+            stringLocalizerFactoryMock
                 .Setup(f => f.Create(It.IsAny<Type>()))
                 .Returns(stringLocalizer.Object);
 
-            var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
-                stringLocalizerFactory.Object);
+            var options = Options.Create(new MvcDataAnnotationsLocalizationOptions());
+            options.Value.DataAnnotationLocalizerProvider = (modelType, stringLocalizerFactory) => stringLocalizerFactory.Create(modelType);
+            var provider = new DataAnnotationsMetadataProvider(options, stringLocalizerFactoryMock.Object);
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -959,12 +1070,12 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var key = ModelMetadataIdentity.ForType(type);
             var attributes = new object[0];
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -989,12 +1100,12 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
             };
 
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var key = ModelMetadataIdentity.ForType(typeof(EnumWithDisplayOrder));
             var attributes = new object[0];
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
 
             // Act
             provider.CreateDisplayMetadata(context);
@@ -1015,12 +1126,12 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
             // Assert
             var groupTwo = Assert.Single(enumNameAndGroup, e => e.Value.Equals("2", StringComparison.Ordinal));
 
-            using (new CultureReplacer("en-US", "en-US"))
+            using(new CultureReplacer("en-US", "en-US"))
             {
                 Assert.Equal("Loc_Two_Name", groupTwo.Key.Name);
             }
 
-            using (new CultureReplacer("fr-FR", "fr-FR"))
+            using(new CultureReplacer("fr-FR", "fr-FR"))
             {
                 Assert.Equal("Loc_Two_Name", groupTwo.Key.Name);
             }
@@ -1035,12 +1146,12 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
             // Assert
             var groupTwo = Assert.Single(enumNameAndGroup, e => e.Value.Equals("2", StringComparison.Ordinal));
 
-            using (new CultureReplacer("en-US", "en-US"))
+            using(new CultureReplacer("en-US", "en-US"))
             {
                 Assert.Equal("Loc_Two_Name en-US", groupTwo.Key.Name);
             }
 
-            using (new CultureReplacer("fr-FR", "fr-FR"))
+            using(new CultureReplacer("fr-FR", "fr-FR"))
             {
                 Assert.Equal("Loc_Two_Name fr-FR", groupTwo.Key.Name);
             }
@@ -1055,12 +1166,12 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
             // Assert
             var groupThree = Assert.Single(enumNameAndGroup, e => e.Value.Equals("3", StringComparison.Ordinal));
 
-            using (new CultureReplacer("en-US", "en-US"))
+            using(new CultureReplacer("en-US", "en-US"))
             {
                 Assert.Equal("type three name en-US", groupThree.Key.Name);
             }
 
-            using (new CultureReplacer("fr-FR", "fr-FR"))
+            using(new CultureReplacer("fr-FR", "fr-FR"))
             {
                 Assert.Equal("type three name fr-FR", groupThree.Key.Name);
             }
@@ -1075,12 +1186,12 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
             var groupThree = Assert.Single(enumNameAndGroup, e => e.Value.Equals("3", StringComparison.Ordinal));
 
             // Assert
-            using (new CultureReplacer("en-US", "en-US"))
+            using(new CultureReplacer("en-US", "en-US"))
             {
                 Assert.Equal("type three name en-US", groupThree.Key.Name);
             }
 
-            using (new CultureReplacer("fr-FR", "fr-FR"))
+            using(new CultureReplacer("fr-FR", "fr-FR"))
             {
                 Assert.Equal("type three name fr-FR", groupThree.Key.Name);
             }
@@ -1091,14 +1202,14 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var required = new RequiredAttribute();
 
             var attributes = new Attribute[] { required };
             var key = ModelMetadataIdentity.ForProperty(typeof(int), "Length", typeof(string));
-            var context = new ValidationMetadataProviderContext(key, new ModelAttributes(attributes, new object[0]));
+            var context = new ValidationMetadataProviderContext(key, GetModelAttributes(new object[0], attributes));
 
             // Act
             provider.CreateValidationMetadata(context);
@@ -1115,12 +1226,12 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var attributes = new Attribute[] { };
             var key = ModelMetadataIdentity.ForProperty(typeof(int), "Length", typeof(string));
-            var context = new ValidationMetadataProviderContext(key, new ModelAttributes(attributes, new object[0]));
+            var context = new ValidationMetadataProviderContext(key, GetModelAttributes(new object[0], attributes));
             context.ValidationMetadata.IsRequired = initialValue;
 
             // Act
@@ -1138,12 +1249,12 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var attributes = new Attribute[] { new RequiredAttribute() };
             var key = ModelMetadataIdentity.ForProperty(typeof(int), "Length", typeof(string));
-            var context = new BindingMetadataProviderContext(key, new ModelAttributes(attributes, new object[0]));
+            var context = new BindingMetadataProviderContext(key, GetModelAttributes(new object[0], attributes));
             context.BindingMetadata.IsBindingRequired = initialValue;
 
             // Act
@@ -1161,12 +1272,12 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var attributes = new Attribute[] { };
             var key = ModelMetadataIdentity.ForProperty(typeof(int), "Length", typeof(string));
-            var context = new BindingMetadataProviderContext(key, new ModelAttributes(attributes, new object[0]));
+            var context = new BindingMetadataProviderContext(key, GetModelAttributes(new object[0], attributes));
             context.BindingMetadata.IsReadOnly = initialValue;
 
             // Act
@@ -1181,13 +1292,13 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var attribute = new TestValidationAttribute();
             var attributes = new Attribute[] { attribute };
             var key = ModelMetadataIdentity.ForProperty(typeof(int), "Length", typeof(string));
-            var context = new ValidationMetadataProviderContext(key, new ModelAttributes(attributes, new object[0]));
+            var context = new ValidationMetadataProviderContext(key, GetModelAttributes(new object[0], attributes));
 
             // Act
             provider.CreateValidationMetadata(context);
@@ -1202,13 +1313,13 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
         {
             // Arrange
             var provider = new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                Options.Create(new MvcDataAnnotationsLocalizationOptions()),
                 stringLocalizerFactory: null);
 
             var attribute = new TestValidationAttribute();
             var attributes = new Attribute[] { attribute };
             var key = ModelMetadataIdentity.ForProperty(typeof(int), "Length", typeof(string));
-            var context = new ValidationMetadataProviderContext(key, new ModelAttributes(attributes, new object[0]));
+            var context = new ValidationMetadataProviderContext(key, GetModelAttributes(new object[0], attributes));
             context.ValidationMetadata.ValidatorMetadata.Add(attribute);
 
             // Act
@@ -1227,7 +1338,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
             var key = ModelMetadataIdentity.ForType(typeof(EnumWithLocalizedDisplayNames));
             var attributes = new object[0];
 
-            var context = new DisplayMetadataProviderContext(key, new ModelAttributes(attributes));
+            var context = new DisplayMetadataProviderContext(key, GetModelAttributes(attributes));
             provider.CreateDisplayMetadata(context);
 
             return context.DisplayMetadata.EnumGroupedDisplayNamesAndValues;
@@ -1248,9 +1359,32 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
                 .Setup(factory => factory.Create(typeof(EnumWithLocalizedDisplayNames)))
                 .Returns(stringLocalizer.Object);
 
+            var options = Options.Create(new MvcDataAnnotationsLocalizationOptions());
+            options.Value.DataAnnotationLocalizerProvider = (modelType, localizerFactory) => localizerFactory.Create(modelType);
+
             return new DataAnnotationsMetadataProvider(
-                new TestOptionsManager<MvcDataAnnotationsLocalizationOptions>(),
+                options,
                 useStringLocalizer ? stringLocalizerFactory.Object : null);
+        }
+
+        private ModelAttributes GetModelAttributes(IEnumerable<object> typeAttributes)
+        {
+#pragma warning disable CS0618 // Type or member is obsolete
+            var modelAttributes = new ModelAttributes(typeAttributes);
+#pragma warning restore CS0618 // Type or member is obsolete
+
+            return modelAttributes;
+        }
+
+        private ModelAttributes GetModelAttributes(
+            IEnumerable<object> typeAttributes,
+            IEnumerable<object> propertyAttributes)
+        {
+#pragma warning disable CS0618 // Type or member is obsolete
+            var modelAttributes = new ModelAttributes(propertyAttributes, typeAttributes);
+#pragma warning restore CS0618 // Type or member is obsolete
+
+            return modelAttributes;
         }
 
         private class KVPEnumGroupAndNameComparer : IEqualityComparer<KeyValuePair<EnumGroupAndName, string>>
@@ -1263,7 +1397,7 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             public bool Equals(KeyValuePair<EnumGroupAndName, string> x, KeyValuePair<EnumGroupAndName, string> y)
             {
-                using (new CultureReplacer(string.Empty, string.Empty))
+                using(new CultureReplacer(string.Empty, string.Empty))
                 {
                     return x.Key.Name.Equals(y.Key.Name, StringComparison.Ordinal)
                         && x.Key.Group.Equals(y.Key.Group, StringComparison.Ordinal);
@@ -1272,14 +1406,9 @@ namespace Microsoft.AspNetCore.Mvc.DataAnnotations.Internal
 
             public int GetHashCode(KeyValuePair<EnumGroupAndName, string> obj)
             {
-                using (new CultureReplacer(string.Empty, string.Empty))
+                using(new CultureReplacer(string.Empty, string.Empty))
                 {
-                    var hashcode = HashCodeCombiner.Start();
-
-                    hashcode.Add(obj.Key.Name);
-                    hashcode.Add(obj.Key.Group);
-
-                    return hashcode.CombinedHash;
+                    return obj.Key.GetHashCode();
                 }
             }
         }

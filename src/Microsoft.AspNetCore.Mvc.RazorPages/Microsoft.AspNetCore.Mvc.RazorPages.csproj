@@ -1,7 +1,5 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <Import Project="..\..\build\common.props" />
-
   <PropertyGroup>
     <Description>ASP.NET Core MVC Razor Pages.</Description>
     <TargetFramework>netstandard2.0</TargetFramework>
@@ -13,10 +11,11 @@
   <ItemGroup>
     <ProjectReference Include="..\Microsoft.AspNetCore.Mvc.Razor\Microsoft.AspNetCore.Mvc.Razor.csproj" />
 
-    <PackageReference Include="Microsoft.Extensions.ClosedGenericMatcher.Sources" Version="$(AspNetCoreVersion)" PrivateAssets="All" />
-    <PackageReference Include="Microsoft.Extensions.CopyOnWriteDictionary.Sources" Version="$(AspNetCoreVersion)" PrivateAssets="All" />
-    <PackageReference Include="Microsoft.Extensions.PropertyActivator.Sources" Version="$(AspNetCoreVersion)" PrivateAssets="All" />
-    <PackageReference Include="Microsoft.Extensions.PropertyHelper.Sources" Version="$(AspNetCoreVersion)" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.Extensions.ClosedGenericMatcher.Sources" PrivateAssets="All" Version="$(MicrosoftExtensionsClosedGenericMatcherSourcesPackageVersion)" />
+    <PackageReference Include="Microsoft.Extensions.CopyOnWriteDictionary.Sources" PrivateAssets="All" Version="$(MicrosoftExtensionsCopyOnWriteDictionarySourcesPackageVersion)" />
+    <PackageReference Include="Microsoft.Extensions.ParameterDefaultValue.Sources" PrivateAssets="All" Version="$(MicrosoftExtensionsParameterDefaultValueSourcesPackageVersion)" />
+    <PackageReference Include="Microsoft.Extensions.PropertyActivator.Sources" PrivateAssets="All" Version="$(MicrosoftExtensionsPropertyActivatorSourcesPackageVersion)" />
+    <PackageReference Include="Microsoft.Extensions.PropertyHelper.Sources" PrivateAssets="All" Version="$(MicrosoftExtensionsPropertyHelperSourcesPackageVersion)" />
   </ItemGroup>
 
   <ItemGroup>

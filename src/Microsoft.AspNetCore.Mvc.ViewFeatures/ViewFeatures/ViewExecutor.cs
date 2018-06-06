@@ -4,8 +4,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.Rendering;
@@ -217,14 +217,12 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
 
             var response = viewContext.HttpContext.Response;
 
-            string resolvedContentType;
-            Encoding resolvedContentTypeEncoding;
             ResponseContentTypeHelper.ResolveContentTypeAndEncoding(
                 contentType,
                 response.ContentType,
                 DefaultContentType,
-                out resolvedContentType,
-                out resolvedContentTypeEncoding);
+                out var resolvedContentType,
+                out var resolvedContentTypeEncoding);
 
             response.ContentType = resolvedContentType;
 
@@ -232,6 +230,8 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
             {
                 response.StatusCode = statusCode.Value;
             }
+
+            OnExecuting(viewContext);
 
             using (var writer = WriterFactory.CreateWriter(response.Body, resolvedContentTypeEncoding))
             {
@@ -257,6 +257,15 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
                 // response asynchronously. In the absence of this line, the buffer gets synchronously written to the
                 // response as part of the Dispose which has a perf impact.
                 await writer.FlushAsync();
+            }
+        }
+
+        private void OnExecuting(ViewContext viewContext)
+        {
+            var viewDataValuesProvider = viewContext.HttpContext.Features.Get<IViewDataValuesProviderFeature>();
+            if (viewDataValuesProvider != null)
+            {
+                viewDataValuesProvider.ProvideViewDataValues(viewContext.ViewData);
             }
         }
     }

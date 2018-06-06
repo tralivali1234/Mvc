@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Razor.Compilation;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Text;
 using Moq;
 using Xunit;
@@ -151,7 +152,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
             // Arrange
             var dependencyContextOptions = new DependencyContextCompilationOptions(
                 new[] { "MyDefine" },
-                languageVersion: "CSharp7_1",
+                languageVersion: "7.1",
                 platform: null,
                 allowUnsafe: true,
                 warningsAsErrors: null,
@@ -170,6 +171,89 @@ namespace Microsoft.AspNetCore.Mvc.Razor.Internal
             // Act & Assert
             var compilationOptions = compiler.ParseOptions;
             Assert.Equal(LanguageVersion.CSharp7_1, compilationOptions.LanguageVersion);
+        }
+
+
+        [Fact]
+        public void EmitOptions_ReadsDebugTypeFromDependencyContext()
+        {
+            // Arrange
+            var dependencyContextOptions = new DependencyContextCompilationOptions(
+                new[] { "MyDefine" },
+                languageVersion: "7.1",
+                platform: null,
+                allowUnsafe: true,
+                warningsAsErrors: null,
+                optimize: null,
+                keyFile: null,
+                delaySign: null,
+                publicSign: null,
+                debugType: "portable",
+                emitEntryPoint: null,
+                generateXmlDocumentation: null);
+            var referenceManager = Mock.Of<RazorReferenceManager>();
+            var hostingEnvironment = Mock.Of<IHostingEnvironment>();
+
+            var compiler = new TestCSharpCompiler(referenceManager, hostingEnvironment, dependencyContextOptions);
+
+            // Act & Assert
+            var emitOptions = compiler.EmitOptions;
+            Assert.Equal(DebugInformationFormat.PortablePdb, emitOptions.DebugInformationFormat);
+            Assert.True(compiler.EmitPdb);
+        }
+
+        [Fact]
+        public void EmitOptions_SetsDebugInformationFormatToPortable_WhenDebugTypeIsEmbedded()
+        {
+            // Arrange
+            var dependencyContextOptions = new DependencyContextCompilationOptions(
+                new[] { "MyDefine" },
+                languageVersion: "7.1",
+                platform: null,
+                allowUnsafe: true,
+                warningsAsErrors: null,
+                optimize: null,
+                keyFile: null,
+                delaySign: null,
+                publicSign: null,
+                debugType: "embedded",
+                emitEntryPoint: null,
+                generateXmlDocumentation: null);
+            var referenceManager = Mock.Of<RazorReferenceManager>();
+            var hostingEnvironment = Mock.Of<IHostingEnvironment>();
+
+            var compiler = new TestCSharpCompiler(referenceManager, hostingEnvironment, dependencyContextOptions);
+
+            // Act & Assert
+            var emitOptions = compiler.EmitOptions;
+            Assert.Equal(DebugInformationFormat.PortablePdb, emitOptions.DebugInformationFormat);
+            Assert.True(compiler.EmitPdb);
+        }
+
+        [Fact]
+        public void EmitOptions_DoesNotSetEmitPdb_IfDebugTypeIsNone()
+        {
+            // Arrange
+            var dependencyContextOptions = new DependencyContextCompilationOptions(
+                new[] { "MyDefine" },
+                languageVersion: "7.1",
+                platform: null,
+                allowUnsafe: true,
+                warningsAsErrors: null,
+                optimize: null,
+                keyFile: null,
+                delaySign: null,
+                publicSign: null,
+                debugType: "none",
+                emitEntryPoint: null,
+                generateXmlDocumentation: null);
+            var referenceManager = Mock.Of<RazorReferenceManager>();
+            var hostingEnvironment = Mock.Of<IHostingEnvironment>();
+
+            var compiler = new TestCSharpCompiler(referenceManager, hostingEnvironment, dependencyContextOptions);
+
+            // Act & Assert
+            Assert.False(compiler.EmitPdb);
         }
 
         [Fact]

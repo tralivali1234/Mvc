@@ -146,6 +146,36 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
         }
 
         /// <summary>
+        /// Creates a <see cref="BadRequestResult"/> that produces a <see cref="StatusCodes.Status400BadRequest"/> response.
+        /// </summary>
+        /// <returns>The created <see cref="BadRequestResult"/> for the response.</returns>
+        public virtual BadRequestResult BadRequest()
+            => new BadRequestResult();
+
+        /// <summary>
+        /// Creates a <see cref="BadRequestObjectResult"/> that produces a <see cref="StatusCodes.Status400BadRequest"/> response.
+        /// </summary>
+        /// <param name="error">An error object to be returned to the client.</param>
+        /// <returns>The created <see cref="BadRequestObjectResult"/> for the response.</returns>
+        public virtual BadRequestObjectResult BadRequest(object error)
+            => new BadRequestObjectResult(error);
+
+        /// <summary>
+        /// Creates a <see cref="BadRequestObjectResult"/> that produces a <see cref="StatusCodes.Status400BadRequest"/> response.
+        /// </summary>
+        /// <param name="modelState">The <see cref="ModelStateDictionary" /> containing errors to be returned to the client.</param>
+        /// <returns>The created <see cref="BadRequestObjectResult"/> for the response.</returns>
+        public virtual BadRequestObjectResult BadRequest(ModelStateDictionary modelState)
+        {
+            if (modelState == null)
+            {
+                throw new ArgumentNullException(nameof(modelState));
+            }
+
+            return new BadRequestObjectResult(modelState);
+        }
+
+        /// <summary>
         /// Creates a <see cref="ChallengeResult"/>.
         /// </summary>
         /// <returns>The created <see cref="ChallengeResult"/> for the response.</returns>
@@ -185,7 +215,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
             => new ChallengeResult(properties);
 
         /// <summary>
-        /// Creates a <see cref="ChallengeResult"/> with the specified specified authentication schemes and
+        /// Creates a <see cref="ChallengeResult"/> with the specified authentication schemes and
         /// <paramref name="properties" />.
         /// </summary>
         /// <param name="properties"><see cref="AuthenticationProperties"/> used to perform the authentication
@@ -296,7 +326,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
 
         /// <summary>
         /// Creates a <see cref="ForbidResult"/> (<see cref="StatusCodes.Status403Forbidden"/> by default) with the 
-        /// specified specified authentication schemes and <paramref name="properties" />.
+        /// specified authentication schemes and <paramref name="properties" />.
         /// </summary>
         /// <param name="properties"><see cref="AuthenticationProperties"/> used to perform the authentication
         /// challenge.</param>
@@ -1129,7 +1159,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
             => new SignInResult(authenticationScheme, principal);
 
         /// <summary>
-        /// Creates a <see cref="SignInResult"/> with the specified specified authentication scheme and
+        /// Creates a <see cref="SignInResult"/> with the specified authentication scheme and
         /// <paramref name="properties" />.
         /// </summary>
         /// <param name="principal">The <see cref="ClaimsPrincipal"/> containing the user claims.</param>
@@ -1151,7 +1181,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
             => new SignOutResult(authenticationSchemes);
 
         /// <summary>
-        /// Creates a <see cref="SignOutResult"/> with the specified specified authentication schemes and
+        /// Creates a <see cref="SignOutResult"/> with the specified authentication schemes and
         /// <paramref name="properties" />.
         /// </summary>
         /// <param name="properties"><see cref="AuthenticationProperties"/> used to perform the sign-out operation.</param>
@@ -1183,6 +1213,78 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages
         /// <returns>The created <see cref="UnauthorizedResult"/> for the response.</returns>
         public virtual UnauthorizedResult Unauthorized()
             => new UnauthorizedResult();
+
+        #region ViewComponentResult
+        /// <summary>
+        /// Creates a <see cref="ViewComponentResult"/> by specifying the name of a view component to render.
+        /// </summary>
+        /// <param name="componentName">
+        /// The view component name. Can be a view component
+        /// <see cref="ViewComponents.ViewComponentDescriptor.ShortName"/> or
+        /// <see cref="ViewComponents.ViewComponentDescriptor.FullName"/>.</param>
+        /// <returns>The created <see cref="ViewComponentResult"/> object for the response.</returns>
+        public virtual ViewComponentResult ViewComponent(string componentName)
+        {
+            return ViewComponent(componentName, arguments: null);
+        }
+
+        /// <summary>
+        /// Creates a <see cref="ViewComponentResult"/> by specifying the <see cref="Type"/> of a view component to
+        /// render.
+        /// </summary>
+        /// <param name="componentType">The view component <see cref="Type"/>.</param>
+        /// <returns>The created <see cref="ViewComponentResult"/> object for the response.</returns>
+        public virtual ViewComponentResult ViewComponent(Type componentType)
+        {
+            return ViewComponent(componentType, arguments: null);
+        }
+
+        /// <summary>
+        /// Creates a <see cref="ViewComponentResult"/> by specifying the name of a view component to render.
+        /// </summary>
+        /// <param name="componentName">
+        /// The view component name. Can be a view component
+        /// <see cref="ViewComponents.ViewComponentDescriptor.ShortName"/> or
+        /// <see cref="ViewComponents.ViewComponentDescriptor.FullName"/>.</param>
+        /// <param name="arguments">
+        /// An <see cref="object"/> with properties representing arguments to be passed to the invoked view component
+        /// method. Alternatively, an <see cref="System.Collections.Generic.IDictionary{String, Object}"/> instance
+        /// containing the invocation arguments.
+        /// </param>
+        /// <returns>The created <see cref="ViewComponentResult"/> object for the response.</returns>
+        public virtual ViewComponentResult ViewComponent(string componentName, object arguments)
+        {
+            return new ViewComponentResult
+            {
+                ViewComponentName = componentName,
+                Arguments = arguments,
+                ViewData = ViewContext.ViewData,
+                TempData = TempData
+            };
+        }
+
+        /// <summary>
+        /// Creates a <see cref="ViewComponentResult"/> by specifying the <see cref="Type"/> of a view component to
+        /// render.
+        /// </summary>
+        /// <param name="componentType">The view component <see cref="Type"/>.</param>
+        /// <param name="arguments">
+        /// An <see cref="object"/> with properties representing arguments to be passed to the invoked view component
+        /// method. Alternatively, an <see cref="System.Collections.Generic.IDictionary{String, Object}"/> instance
+        /// containing the invocation arguments.
+        /// </param>
+        /// <returns>The created <see cref="ViewComponentResult"/> object for the response.</returns>
+        public virtual ViewComponentResult ViewComponent(Type componentType, object arguments)
+        {
+            return new ViewComponentResult
+            {
+                ViewComponentType = componentType,
+                Arguments = arguments,
+                ViewData = ViewContext.ViewData,
+                TempData = TempData
+            };
+        }
+        #endregion
 
         /// <summary>
         /// Updates the specified <paramref name="model"/> instance using values from the <see cref="RazorPages.Page"/>'s current

@@ -20,6 +20,7 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures.Internal
     public static class DefaultEditorTemplates
     {
         private const string HtmlAttributeKey = "htmlAttributes";
+        private const string UsePasswordValue = "Switch.Microsoft.AspNetCore.Mvc.UsePasswordValue";
 
         public static IHtmlContent BooleanTemplate(IHtmlHelper htmlHelper)
         {
@@ -197,8 +198,7 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures.Internal
         {
             var htmlAttributes = HtmlHelper.AnonymousObjectToHtmlAttributes(htmlAttributesObject);
 
-            object htmlClassObject;
-            if (htmlAttributes.TryGetValue("class", out htmlClassObject))
+            if (htmlAttributes.TryGetValue("class", out var htmlClassObject))
             {
                 var htmlClassName = htmlClassObject + " " + className;
                 htmlAttributes["class"] = htmlClassName;
@@ -313,9 +313,15 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures.Internal
 
         public static IHtmlContent PasswordTemplate(IHtmlHelper htmlHelper)
         {
+            object value = null;
+            if (AppContext.TryGetSwitch(UsePasswordValue, out var usePasswordValue) && usePasswordValue)
+            {
+                value = htmlHelper.ViewData.TemplateInfo.FormattedModelValue;
+            }
+
             return htmlHelper.Password(
                 expression: null,
-                value: htmlHelper.ViewData.TemplateInfo.FormattedModelValue,
+                value: value,
                 htmlAttributes: CreateHtmlAttributes(htmlHelper, "text-box single-line password"));
         }
 
@@ -347,15 +353,15 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures.Internal
             return GenerateTextBox(htmlHelper, inputType: "email");
         }
 
-        public static IHtmlContent DateTimeInputTemplate(IHtmlHelper htmlHelper)
+        public static IHtmlContent DateTimeOffsetTemplate(IHtmlHelper htmlHelper)
         {
-            ApplyRfc3339DateFormattingIfNeeded(htmlHelper, "{0:yyyy-MM-ddTHH:mm:ss.fffK}");
-            return GenerateTextBox(htmlHelper, inputType: "datetime");
+            ApplyRfc3339DateFormattingIfNeeded(htmlHelper, @"{0:yyyy-MM-ddTHH\:mm\:ss.fffK}");
+            return GenerateTextBox(htmlHelper, inputType: "text");
         }
 
         public static IHtmlContent DateTimeLocalInputTemplate(IHtmlHelper htmlHelper)
         {
-            ApplyRfc3339DateFormattingIfNeeded(htmlHelper, "{0:yyyy-MM-ddTHH:mm:ss.fff}");
+            ApplyRfc3339DateFormattingIfNeeded(htmlHelper, @"{0:yyyy-MM-ddTHH\:mm\:ss.fff}");
             return GenerateTextBox(htmlHelper, inputType: "datetime-local");
         }
 
@@ -367,8 +373,21 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures.Internal
 
         public static IHtmlContent TimeInputTemplate(IHtmlHelper htmlHelper)
         {
-            ApplyRfc3339DateFormattingIfNeeded(htmlHelper, "{0:HH:mm:ss.fff}");
+            ApplyRfc3339DateFormattingIfNeeded(htmlHelper, @"{0:HH\:mm\:ss.fff}");
             return GenerateTextBox(htmlHelper, inputType: "time");
+        }
+
+        public static IHtmlContent MonthInputTemplate(IHtmlHelper htmlHelper)
+        {
+            // "month" is a new HTML5 input type that only will be rendered in Rfc3339 mode
+            htmlHelper.Html5DateRenderingMode = Html5DateRenderingMode.Rfc3339;
+            ApplyRfc3339DateFormattingIfNeeded(htmlHelper, "{0:yyyy-MM}");
+            return GenerateTextBox(htmlHelper, inputType: "month");
+        }
+
+        public static IHtmlContent WeekInputTemplate(IHtmlHelper htmlHelper)
+        {
+            return GenerateTextBox(htmlHelper, inputType: "week");
         }
 
         public static IHtmlContent NumberInputTemplate(IHtmlHelper htmlHelper)

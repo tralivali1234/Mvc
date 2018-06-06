@@ -2,34 +2,37 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System.Globalization;
-using System.IO;
-using System.Reflection;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 
 namespace Microsoft.AspNetCore.Mvc.FunctionalTests
 {
-    public class MvcTestFixture<TStartup> : WebApplicationTestFixture<TStartup>
+    public class MvcTestFixture<TStartup> : WebApplicationFactory<TStartup>
         where TStartup : class
     {
-        public MvcTestFixture()
-            : base(Path.Combine("test", "WebSites", typeof(TStartup).Assembly.GetName().Name))
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            builder
+                .UseRequestCulture<TStartup>("en-GB", "en-US")
+                .UseEnvironment("Production")
+                .ConfigureServices(
+                    services =>
+                    {
+                        var testSink = new TestSink();
+                        var loggerFactory = new TestLoggerFactory(testSink, enabled: true);
+                        services.AddSingleton<ILoggerFactory>(loggerFactory);
+
+                        services.Configure<MvcCompatibilityOptions>(
+                            options => options.CompatibilityVersion = CompatibilityVersion.Version_2_1);
+                    });
         }
 
-        protected MvcTestFixture(string solutionRelativePath)
-            : base(solutionRelativePath)
-        {
-        }
-
-        protected override void ConfigureApplication(MvcWebApplicationBuilder<TStartup> builder)
-        {
-            builder.UseRequestCulture("en-GB", "en-US");            
-            builder.ApplicationAssemblies.Clear();
-            builder.ApplicationAssemblies.Add(typeof(TStartup).GetTypeInfo().Assembly);
-        }
-
-        protected override TestServer CreateServer(MvcWebApplicationBuilder<TStartup> builder)
+        protected override TestServer CreateServer(IWebHostBuilder builder)
         {
             var originalCulture = CultureInfo.CurrentCulture;
             var originalUICulture = CultureInfo.CurrentUICulture;

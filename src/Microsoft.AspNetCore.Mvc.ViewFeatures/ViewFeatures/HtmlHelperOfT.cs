@@ -24,10 +24,15 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
             IHtmlGenerator htmlGenerator,
             ICompositeViewEngine viewEngine,
             IModelMetadataProvider metadataProvider,
+#pragma warning disable PUB0001 // Pubternal type in public API
             IViewBufferScope bufferScope,
+#pragma warning restore PUB0001
             HtmlEncoder htmlEncoder,
             UrlEncoder urlEncoder,
-            ExpressionTextCache expressionTextCache)
+#pragma warning disable PUB0001 // Pubternal type in public API
+            ExpressionTextCache expressionTextCache
+#pragma warning restore PUB0001
+            )
             : base(
                   htmlGenerator,
                   viewEngine,
@@ -63,6 +68,22 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
             }
 
             ViewData = viewContext.ViewData as ViewDataDictionary<TModel>;
+
+            if (ViewData == null)
+            {
+                // The view data that we have at this point might be of a more derived type than the one defined at compile time.
+                // For example ViewDataDictionary<Derived> where our TModel is Base and Derived : Base.
+                // This can't happen for regular views, but it can happen in razor pages if someone modified the model type through
+                // the page application model.
+                // In that case, we check if the type of the current view data, 'ViewDataDictionary<TRuntime>' is "covariant" with the
+                // one defined at compile time 'ViewDataDictionary<TCompile>'
+                var runtimeType = viewContext.ViewData.ModelMetadata.ModelType;
+                if (runtimeType != null && typeof(TModel) != runtimeType && typeof(TModel).IsAssignableFrom(runtimeType))
+                {
+                    ViewData = new ViewDataDictionary<TModel>(viewContext.ViewData, viewContext.ViewData.Model);
+                }
+            }
+
             if (ViewData == null)
             {
                 // viewContext may contain a base ViewDataDictionary instance. So complain about that type, not TModel.

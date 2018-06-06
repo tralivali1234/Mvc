@@ -11,11 +11,10 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using Microsoft.AspNetCore.Mvc.TestCommon;
 using Microsoft.AspNetCore.Mvc.ViewEngines;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 using Moq;
 using Xunit;
@@ -360,7 +359,7 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures
             }
 
             return new ViewExecutor(
-                new TestOptionsManager<MvcViewOptions>(),
+                Options.Create(new MvcViewOptions()),
                 new TestHttpResponseStreamWriterFactory(),
                 new Mock<ICompositeViewEngine>(MockBehavior.Strict).Object,
                 new TempDataDictionaryFactory(new SessionStateTempDataProvider()),

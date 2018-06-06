@@ -9,6 +9,8 @@ using System.Net.Http.Headers;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
+using AngleSharp.Dom;
+using AngleSharp.Dom.Html;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Mvc.FunctionalTests
@@ -23,8 +25,8 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             MvcTestFixture<HtmlGenerationWebSite.Startup> fixture,
             MvcEncodedTestFixture<HtmlGenerationWebSite.Startup> encodedFixture)
         {
-            Client = fixture.Client;
-            EncodedClient = encodedFixture.Client;
+            Client = fixture.CreateDefaultClient();
+            EncodedClient = encodedFixture.CreateDefaultClient();
         }
 
         public HttpClient Client { get; }
@@ -61,8 +63,13 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
                     // Only attribute order should differ.
                     { "Order", "/HtmlGeneration_Order/Submit" },
                     { "OrderUsingHtmlHelpers", "/HtmlGeneration_Order/Submit" },
+                    // Testing PartialTagHelper
+                    { "PartialTagHelperWithoutModel", null },
+                    { "Warehouse", null },
                     // Testing InputTagHelpers invoked in the partial views
                     { "ProductList", "/HtmlGeneration_Product" },
+                    { "ProductListUsingTagHelpers", "/HtmlGeneration_Product" },
+                    { "ProductListUsingTagHelpersWithNullModel", "/HtmlGeneration_Product" },
                     // Testing the ScriptTagHelper
                     { "Script", null },
                 };
@@ -78,7 +85,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             var response = await Client.GetStringAsync("http://localhost/HtmlGeneration_Home/Enum");
 
             // Assert
-            Assert.Equal($"Vrijdag{Environment.NewLine}Month: January", response, ignoreLineEndingDifferences: true);
+            Assert.Equal($"Vrijdag{Environment.NewLine}Month: FirstOne", response, ignoreLineEndingDifferences: true);
         }
 
         [Theory]
@@ -523,7 +530,7 @@ Products: Music Systems, Televisions (3)";
             Assert.Equal(expected, response, ignoreLineEndingDifferences: true);
         }
 
-        // We want to make sure that for 'wierd' model expressions involving:
+        // We want to make sure that for 'weird' model expressions involving:
         // - fields
         // - statics
         // - private
@@ -531,7 +538,7 @@ Products: Music Systems, Televisions (3)";
         // These tests verify that we don't throw, and can evaluate the expression to get the model
         // value. One quirk of behavior for these cases is that we can't return a correct model metadata
         // instance (this is true for anything other than a public instance property). We're not overly
-        // concerned with that, and so the accuracy of the model metadata is is not verified by the test.
+        // concerned with that, and so the accuracy of the model metadata is not verified by the test.
         [Theory]
         [InlineData("GetWeirdWithHtmlHelpers")]
         [InlineData("GetWeirdWithTagHelpers")]
@@ -547,6 +554,46 @@ Products: Music Systems, Televisions (3)";
             Assert.Contains("Hello, Field World!", response);
             Assert.Contains("Hello, Static World!", response);
             Assert.Contains("Hello, Private World!", response);
+        }
+
+        [Fact]
+        public async Task PartialTagHelper_AllowsPassingModelValue()
+        {
+            // Arrange
+            var url = "/HtmlGeneration_Home/StatusMessage";
+
+            // Act
+            var document = await Client.GetHtmlDocumentAsync(url);
+
+            // Assert
+            var banner = QuerySelector(document, ".banner");
+            Assert.Equal("Some status message", banner.TextContent);
+        }
+
+        [Fact]
+        public async Task PartialTagHelper_AllowsPassingNullModelValue()
+        {
+            // Regression test for https://github.com/aspnet/Mvc/issues/7667.
+            // Arrange
+            var url = "/HtmlGeneration_Home/NullStatusMessage";
+
+            // Act
+            var document = await Client.GetHtmlDocumentAsync(url);
+
+            // Assert
+            var banner = QuerySelector(document, ".banner");
+            Assert.Empty(banner.TextContent);
+        }
+
+        private static IElement QuerySelector(IHtmlDocument document, string selector)
+        {
+            var element = document.QuerySelector(selector);
+            if (element == null)
+            {
+                throw new ArgumentException($"Document does not contain element that matches the selector {selector}: " + Environment.NewLine + document.DocumentElement.OuterHtml);
+            }
+
+            return element;
         }
 
         private static HttpRequestMessage RequestWithLocale(string url, string locale)

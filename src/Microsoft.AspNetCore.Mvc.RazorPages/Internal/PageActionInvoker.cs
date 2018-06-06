@@ -9,12 +9,14 @@ using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Mvc.ViewFeatures.Internal;
+using Microsoft.Extensions.Internal;
 using Microsoft.Extensions.Logging;
 
 namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
@@ -30,7 +32,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
 
         private Dictionary<string, object> _arguments;
         private HandlerMethodDescriptor _handler;
-        private Page _page;
+        private PageBase _page;
         private object _pageModel;
         private ViewContext _viewContext;
 
@@ -42,6 +44,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
             IPageHandlerMethodSelector handlerMethodSelector,
             DiagnosticSource diagnosticSource,
             ILogger logger,
+            IActionResultTypeMapper mapper,
             PageContext pageContext,
             IFilterMetadata[] filterMetadata,
             PageActionInvokerCacheEntry cacheEntry,
@@ -51,6 +54,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
             : base(
                   diagnosticSource,
                   logger,
+                  mapper,
                   pageContext,
                   filterMetadata,
                   pageContext.ValueProviderFactories)
@@ -88,7 +92,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 await Next(ref next, ref scope, ref state, ref isCompleted);
             }
         }
-        
+
         protected override void ReleaseResources()
         {
             if (_pageModel != null && CacheEntry.ReleaseModel != null)
@@ -100,6 +104,35 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
             {
                 CacheEntry.ReleasePage(_pageContext, _viewContext, _page);
             }
+        }
+
+        protected override Task InvokeResultAsync(IActionResult result)
+        {
+            // We also have some special initialization we need to do for PageResult.
+            if (result is PageResult pageResult)
+            {
+                // If we used a PageModel then the Page isn't initialized yet.
+                if (_viewContext == null)
+                {
+                    _viewContext = new ViewContext(
+                        _pageContext,
+                        NullView.Instance,
+                        _pageContext.ViewData,
+                        _tempDataFactory.GetTempData(_pageContext.HttpContext),
+                        TextWriter.Null,
+                        _htmlHelperOptions);
+                    _viewContext.ExecutingFilePath = _pageContext.ActionDescriptor.RelativePath;
+                }
+
+                if (_page == null)
+                {
+                    _page = (PageBase)CacheEntry.PageFactory(_pageContext, _viewContext);
+                }
+                pageResult.Page = _page;
+                pageResult.ViewData = pageResult.ViewData ?? _pageContext.ViewData;
+            }
+
+            return base.InvokeResultAsync(result);
         }
 
         private object CreateInstance()
@@ -122,8 +155,9 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                     _tempDataFactory.GetTempData(_pageContext.HttpContext),
                     TextWriter.Null,
                     _htmlHelperOptions);
+                _viewContext.ExecutingFilePath = _pageContext.ActionDescriptor.RelativePath;
 
-                _page = (Page)CacheEntry.PageFactory(_pageContext, _viewContext);
+                _page = (PageBase)CacheEntry.PageFactory(_pageContext, _viewContext);
 
                 if (_actionDescriptor.ModelTypeInfo == _actionDescriptor.PageTypeInfo)
                 {
@@ -153,33 +187,26 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
 
         private async Task BindArgumentsCoreAsync()
         {
-            if (CacheEntry.PropertyBinder != null)
-            {
-                await CacheEntry.PropertyBinder(_pageContext, _instance);
-            }
+            await CacheEntry.PropertyBinder(_pageContext, _instance);
 
             if (_handler == null)
             {
                 return;
             }
-            
-            var valueProvider = await CompositeValueProvider.CreateAsync(_pageContext, _pageContext.ValueProviderFactories);
 
-            for (var i = 0; i < _handler.Parameters.Count; i++)
+            // We do two separate cache lookups, once for the binder and once for the executor.
+            // Reducing it to a single lookup requires a lot of code change with little value.
+            PageHandlerBinderDelegate handlerBinder = null;
+            for (var i = 0; i < _actionDescriptor.HandlerMethods.Count; i++)
             {
-                var parameter = _handler.Parameters[i];
-
-                var result = await _parameterBinder.BindModelAsync(
-                    _pageContext,
-                    valueProvider,
-                    parameter,
-                    value: null);
-
-                if (result.IsModelSet)
+                if (object.ReferenceEquals(_handler, _actionDescriptor.HandlerMethods[i]))
                 {
-                    _arguments[parameter.Name] = result.Model;
+                    handlerBinder = CacheEntry.HandlerBinders[i];
+                    break;
                 }
             }
+
+            await handlerBinder(_pageContext, _arguments);
         }
 
         private static object[] PrepareArguments(
@@ -200,11 +227,8 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                 {
                     // Do nothing, already set the value.
                 }
-                else if (parameter.ParameterInfo.HasDefaultValue)
-                {
-                    value = parameter.ParameterInfo.DefaultValue;
-                }
-                else if (parameter.ParameterInfo.ParameterType.IsValueType)
+                else if (!ParameterDefaultValue.TryGetDefaultValue(parameter.ParameterInfo, out value) &&
+                    parameter.ParameterInfo.ParameterType.IsValueType)
                 {
                     value = Activator.CreateInstance(parameter.ParameterInfo.ParameterType);
                 }
@@ -222,16 +246,18 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
             {
                 var arguments = PrepareArguments(_arguments, handler);
 
-                Func<object, object[], Task<IActionResult>> executor = null;
+                PageHandlerExecutorDelegate executor = null;
                 for (var i = 0; i < _actionDescriptor.HandlerMethods.Count; i++)
                 {
                     if (object.ReferenceEquals(handler, _actionDescriptor.HandlerMethods[i]))
                     {
-                        executor = CacheEntry.Executors[i];
+                        executor = CacheEntry.HandlerExecutors[i];
                         break;
                     }
                 }
-                
+
+                Debug.Assert(executor != null, "We should always find a executor for a handler");
+
                 _diagnosticSource.BeforeHandlerMethod(_pageContext, handler, _arguments, _instance);
                 _logger.ExecutingHandlerMethod(_pageContext, handler, arguments);
 
@@ -249,30 +275,15 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
             // Pages have an implicit 'return Page()' even without a handler method.
             if (_result == null)
             {
+                _logger.ExecutingImplicitHandlerMethod(_pageContext);
                 _result = new PageResult();
+                _logger.ExecutedImplicitHandlerMethod(_result);
             }
 
-            // We also have some special initialization we need to do for PageResult.
+            // Ensure ViewData is set on PageResult for backwards compatibility (For example, Identity UI accesses
+            // ViewData in a PageFilter's PageHandlerExecutedMethod)
             if (_result is PageResult pageResult)
             {
-                // If we used a PageModel then the Page isn't initialized yet.
-                if (_viewContext == null)
-                {
-                    _viewContext = new ViewContext(
-                        _pageContext,
-                        NullView.Instance,
-                        _pageContext.ViewData,
-                        _tempDataFactory.GetTempData(_pageContext.HttpContext),
-                        TextWriter.Null,
-                        _htmlHelperOptions);
-                }
-
-                if (_page == null)
-                {
-                    _page = (Page)CacheEntry.PageFactory(_pageContext, _viewContext);
-                }
-
-                pageResult.Page = _page;
                 pageResult.ViewData = pageResult.ViewData ?? _pageContext.ViewData;
             }
         }
@@ -340,6 +351,10 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                         var handlerSelectedContext = _handlerSelectedContext;
 
                         _diagnosticSource.BeforeOnPageHandlerSelection(handlerSelectedContext, filter);
+                        _logger.BeforeExecutingMethodOnFilter(
+                            PageLoggerExtensions.PageFilter,
+                            nameof(IAsyncPageFilter.OnPageHandlerSelectionAsync),
+                            filter);
 
                         var task = filter.OnPageHandlerSelectionAsync(handlerSelectedContext);
                         if (task.Status != TaskStatus.RanToCompletion)
@@ -359,6 +374,10 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                         var filter = (IAsyncPageFilter)state;
 
                         _diagnosticSource.AfterOnPageHandlerSelection(_handlerSelectedContext, filter);
+                        _logger.AfterExecutingMethodOnFilter(
+                            PageLoggerExtensions.PageFilter,
+                            nameof(IAsyncPageFilter.OnPageHandlerSelectionAsync),
+                            filter);
 
                         goto case State.PageSelectHandlerNext;
                     }
@@ -372,6 +391,10 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                         var handlerSelectedContext = _handlerSelectedContext;
 
                         _diagnosticSource.BeforeOnPageHandlerSelected(handlerSelectedContext, filter);
+                        _logger.BeforeExecutingMethodOnFilter(
+                            PageLoggerExtensions.PageFilter,
+                            nameof(IPageFilter.OnPageHandlerSelected),
+                            filter);
 
                         filter.OnPageHandlerSelected(handlerSelectedContext);
 
@@ -418,7 +441,7 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                         {
                             if (_handlerExecutingContext == null)
                             {
-                                _handlerExecutingContext = new PageHandlerExecutingContext(_pageContext, _filters,_handler, _arguments, _instance);
+                                _handlerExecutingContext = new PageHandlerExecutingContext(_pageContext, _filters, _handler, _arguments, _instance);
                             }
 
                             state = current.Filter;
@@ -439,6 +462,10 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                         var handlerExecutingContext = _handlerExecutingContext;
 
                         _diagnosticSource.BeforeOnPageHandlerExecution(handlerExecutingContext, filter);
+                        _logger.BeforeExecutingMethodOnFilter(
+                            PageLoggerExtensions.PageFilter,
+                            nameof(IAsyncPageFilter.OnPageHandlerExecutionAsync),
+                            filter);
 
                         var task = filter.OnPageHandlerExecutionAsync(handlerExecutingContext, InvokeNextPageFilterAwaitedAsync);
                         if (task.Status != TaskStatus.RanToCompletion)
@@ -474,6 +501,10 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                         }
 
                         _diagnosticSource.AfterOnPageHandlerExecution(_handlerExecutedContext, filter);
+                        _logger.AfterExecutingMethodOnFilter(
+                           PageLoggerExtensions.PageFilter,
+                           nameof(IAsyncPageFilter.OnPageHandlerExecutionAsync),
+                           filter);
 
                         goto case State.PageEnd;
                     }
@@ -487,10 +518,18 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                         var handlerExecutingContext = _handlerExecutingContext;
 
                         _diagnosticSource.BeforeOnPageHandlerExecuting(handlerExecutingContext, filter);
+                        _logger.BeforeExecutingMethodOnFilter(
+                           PageLoggerExtensions.PageFilter,
+                           nameof(IPageFilter.OnPageHandlerExecuting),
+                           filter);
 
                         filter.OnPageHandlerExecuting(handlerExecutingContext);
 
                         _diagnosticSource.AfterOnPageHandlerExecuting(handlerExecutingContext, filter);
+                        _logger.AfterExecutingMethodOnFilter(
+                           PageLoggerExtensions.PageFilter,
+                           nameof(IPageFilter.OnPageHandlerExecuting),
+                           filter);
 
                         if (handlerExecutingContext.Result != null)
                         {
@@ -530,10 +569,18 @@ namespace Microsoft.AspNetCore.Mvc.RazorPages.Internal
                         var handlerExecutedContext = _handlerExecutedContext;
 
                         _diagnosticSource.BeforeOnPageHandlerExecuted(handlerExecutedContext, filter);
+                        _logger.BeforeExecutingMethodOnFilter(
+                           PageLoggerExtensions.PageFilter,
+                           nameof(IPageFilter.OnPageHandlerExecuted),
+                           filter);
 
                         filter.OnPageHandlerExecuted(handlerExecutedContext);
 
                         _diagnosticSource.AfterOnPageHandlerExecuted(handlerExecutedContext, filter);
+                        _logger.AfterExecutingMethodOnFilter(
+                           PageLoggerExtensions.PageFilter,
+                           nameof(IPageFilter.OnPageHandlerExecuted),
+                           filter);
 
                         goto case State.PageEnd;
                     }

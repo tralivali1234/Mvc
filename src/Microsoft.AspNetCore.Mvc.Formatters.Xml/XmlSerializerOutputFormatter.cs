@@ -11,6 +11,7 @@ using System.Xml;
 using System.Xml.Serialization;
 using Microsoft.AspNetCore.Mvc.Formatters.Xml;
 using Microsoft.AspNetCore.Mvc.Formatters.Xml.Internal;
+using Microsoft.Extensions.Logging;
 
 namespace Microsoft.AspNetCore.Mvc.Formatters
 {
@@ -21,13 +22,33 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
     public class XmlSerializerOutputFormatter : TextOutputFormatter
     {
         private readonly ConcurrentDictionary<Type, object> _serializerCache = new ConcurrentDictionary<Type, object>();
+        private readonly ILogger _logger;
 
         /// <summary>
         /// Initializes a new instance of <see cref="XmlSerializerOutputFormatter"/>
-        /// with default XmlWriterSettings.
+        /// with default <see cref="XmlWriterSettings"/>.
         /// </summary>
-        public XmlSerializerOutputFormatter() :
-            this(FormattingUtilities.GetDefaultXmlWriterSettings())
+        public XmlSerializerOutputFormatter()
+            : this(FormattingUtilities.GetDefaultXmlWriterSettings())
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of <see cref="XmlSerializerOutputFormatter"/>
+        /// with default <see cref="XmlWriterSettings"/>.
+        /// </summary>
+        /// <param name="loggerFactory">The <see cref="ILoggerFactory"/>.</param>
+        public XmlSerializerOutputFormatter(ILoggerFactory loggerFactory)
+            : this(FormattingUtilities.GetDefaultXmlWriterSettings(), loggerFactory)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of <see cref="XmlSerializerOutputFormatter"/>.
+        /// </summary>
+        /// <param name="writerSettings">The settings to be used by the <see cref="XmlSerializer"/>.</param>
+        public XmlSerializerOutputFormatter(XmlWriterSettings writerSettings)
+            : this(writerSettings, loggerFactory: null)
         {
         }
 
@@ -35,7 +56,8 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
         /// Initializes a new instance of <see cref="XmlSerializerOutputFormatter"/>
         /// </summary>
         /// <param name="writerSettings">The settings to be used by the <see cref="XmlSerializer"/>.</param>
-        public XmlSerializerOutputFormatter(XmlWriterSettings writerSettings)
+        /// <param name="loggerFactory">The <see cref="ILoggerFactory"/>.</param>
+        public XmlSerializerOutputFormatter(XmlWriterSettings writerSettings, ILoggerFactory loggerFactory)
         {
             if (writerSettings == null)
             {
@@ -54,6 +76,8 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             WrapperProviderFactories = new List<IWrapperProviderFactory>();
             WrapperProviderFactories.Add(new EnumerableWrapperProviderFactory(WrapperProviderFactories));
             WrapperProviderFactories.Add(new SerializableErrorWrapperProviderFactory());
+
+            _logger = loggerFactory?.CreateLogger(GetType());
         }
 
         /// <summary>
@@ -114,8 +138,10 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
                 // If the serializer does not support this type it will throw an exception.
                 return new XmlSerializer(type);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger?.FailedToCreateXmlSerializer(type.FullName, ex);
+
                 // We do not surface the caught exception because if CanWriteResult returns
                 // false, then this Formatter is not picked up at all.
                 return null;
@@ -132,7 +158,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
         /// <param name="xmlWriterSettings">
         /// The <see cref="XmlWriterSettings"/>.
         /// </param>
-        /// <returns>A new instance of <see cref="XmlWriter"/></returns>
+        /// <returns>A new instance of <see cref="XmlWriter"/>.</returns>
         public virtual XmlWriter CreateXmlWriter(
             TextWriter writer,
             XmlWriterSettings xmlWriterSettings)
@@ -151,6 +177,26 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             xmlWriterSettings.CloseOutput = false;
 
             return XmlWriter.Create(writer, xmlWriterSettings);
+        }
+
+        /// <summary>
+        /// Creates a new instance of <see cref="XmlWriter"/> using the given <see cref="TextWriter"/> and
+        /// <see cref="XmlWriterSettings"/>.
+        /// </summary>
+        /// <param name="context">The formatter context associated with the call.</param>
+        /// <param name="writer">
+        /// The underlying <see cref="TextWriter"/> which the <see cref="XmlWriter"/> should write to.
+        /// </param>
+        /// <param name="xmlWriterSettings">
+        /// The <see cref="XmlWriterSettings"/>.
+        /// </param>
+        /// <returns>A new instance of <see cref="XmlWriter"/></returns>
+        public virtual XmlWriter CreateXmlWriter(
+            OutputFormatterWriteContext context,
+            TextWriter writer,
+            XmlWriterSettings xmlWriterSettings)
+        {
+            return CreateXmlWriter(writer, xmlWriterSettings);
         }
 
         /// <inheritdoc />
@@ -185,9 +231,9 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
 
             using (var textWriter = context.WriterFactory(context.HttpContext.Response.Body, writerSettings.Encoding))
             {
-                using (var xmlWriter = CreateXmlWriter(textWriter, writerSettings))
+                using (var xmlWriter = CreateXmlWriter(context, textWriter, writerSettings))
                 {
-                    xmlSerializer.Serialize(xmlWriter, value);
+                    Serialize(xmlSerializer, xmlWriter, value);
                 }
 
                 // Perf: call FlushAsync to call WriteAsync on the stream with any content left in the TextWriter's
@@ -195,6 +241,18 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
                 // write).
                 await textWriter.FlushAsync();
             }
+        }
+
+        /// <summary>
+        /// Serializes value using the passed in <paramref name="xmlSerializer"/> and <paramref name="xmlWriter"/>.
+        /// </summary>
+        /// <param name="xmlSerializer">The serializer used to serialize the <paramref name="value"/>.</param>
+        /// <param name="xmlWriter">The writer used by the serializer <paramref name="xmlSerializer"/>
+        /// to serialize the <paramref name="value"/>.</param>
+        /// <param name="value">The value to be serialized.</param>
+        protected virtual void Serialize(XmlSerializer xmlSerializer, XmlWriter xmlWriter, object value)
+        {
+            xmlSerializer.Serialize(xmlWriter, value);
         }
 
         /// <summary>

@@ -8,7 +8,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Formatters.Internal;
-using Microsoft.AspNetCore.Mvc.TestCommon;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Primitives;
 using Moq;
@@ -61,7 +60,7 @@ namespace Microsoft.AspNetCore.Mvc.Test
 
             // Assert
             var objectResult = Assert.IsType<ObjectResult>(resultExecutingContext.Result);
-            Assert.Equal(1, objectResult.ContentTypes.Count);
+            Assert.Single(objectResult.ContentTypes);
         }
 
         [Fact]
@@ -86,7 +85,7 @@ namespace Microsoft.AspNetCore.Mvc.Test
 
             // Assert
             var objectResult = Assert.IsType<ObjectResult>(resultExecutingContext.Result);
-            Assert.Equal(0, objectResult.ContentTypes.Count);
+            Assert.Empty(objectResult.ContentTypes);
         }
 
         [Theory]

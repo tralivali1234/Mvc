@@ -81,6 +81,8 @@ namespace Microsoft.Extensions.DependencyInjection
             // Options
             services.TryAddEnumerable(
                 ServiceDescriptor.Transient<IConfigureOptions<RazorViewEngineOptions>, RazorPagesRazorViewEngineOptionsSetup>());
+            services.TryAddEnumerable(
+                ServiceDescriptor.Transient<IPostConfigureOptions<RazorPagesOptions>, RazorPagesOptionsConfigureCompatibilityOptions>());
 
             // Action description and invocation
             services.TryAddEnumerable(
@@ -99,6 +101,10 @@ namespace Microsoft.Extensions.DependencyInjection
                 ServiceDescriptor.Singleton<IPageApplicationModelProvider, AuthorizationPageApplicationModelProvider>());
             services.TryAddEnumerable(
                 ServiceDescriptor.Singleton<IPageApplicationModelProvider, TempDataFilterPageApplicationModelProvider>());
+            services.TryAddEnumerable(
+                ServiceDescriptor.Singleton<IPageApplicationModelProvider, ViewDataAttributePageApplicationModelProvider>());
+            services.TryAddEnumerable(
+                ServiceDescriptor.Singleton<IPageApplicationModelProvider, ResponseCacheFilterApplicationModelProvider>());
 
             services.TryAddEnumerable(
                 ServiceDescriptor.Singleton<IActionInvokerProvider, PageActionInvokerProvider>());
@@ -114,7 +120,9 @@ namespace Microsoft.Extensions.DependencyInjection
             services.TryAddSingleton<IPageHandlerMethodSelector, DefaultPageHandlerMethodSelector>();
 
             // Page model binding
+#pragma warning disable CS0618 // Type or member is obsolete
             services.TryAddSingleton<PageArgumentBinder, DefaultPageArgumentBinder>();
+#pragma warning restore CS0618 // Type or member is obsolete
 
             // Action executors
             services.TryAddSingleton<PageResultExecutor>();

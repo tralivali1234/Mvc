@@ -7,8 +7,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
-using Microsoft.AspNetCore.Mvc.TestCommon;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
@@ -43,7 +43,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             var resultExecutingContext = mockObjects.CreateResultExecutingContext();
             var resourceExecutingContext = mockObjects.CreateResourceExecutingContext(new IFilterMetadata[] { });
 
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             filter.OnResourceExecuting(resourceExecutingContext);
@@ -56,7 +56,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
 
             // Assert
             var objectResult = Assert.IsType<ObjectResult>(resultExecutingContext.Result);
-            Assert.Equal(1, objectResult.ContentTypes.Count);
+            Assert.Single(objectResult.ContentTypes);
             MediaTypeAssert.Equal(mediaType, objectResult.ContentTypes[0]);
         }
 
@@ -92,7 +92,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
                 new IFilterMetadata[] { },
                 new List<IValueProviderFactory>());
 
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             filter.OnResourceExecuting(resourceExecutingContext);
@@ -100,7 +100,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
 
             // Assert
             var objectResult = Assert.IsType<ObjectResult>(resultExecutingContext.Result);
-            Assert.Equal(1, objectResult.ContentTypes.Count);
+            Assert.Single(objectResult.ContentTypes);
             MediaTypeAssert.Equal(mediaType, objectResult.ContentTypes[0]);
         }
 
@@ -120,11 +120,11 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             var resultExecutingContext = mockObjects.CreateResultExecutingContext();
             var resourceExecutingContext = mockObjects.CreateResourceExecutingContext(new IFilterMetadata[] { });
 
-            mockObjects.Options.FormatterMappings.SetMediaTypeMappingForFormat(
+            mockObjects.MvcOptions.FormatterMappings.SetMediaTypeMappingForFormat(
                 format,
                 MediaTypeHeaderValue.Parse(contentType));
 
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             filter.OnResourceExecuting(resourceExecutingContext);
@@ -132,7 +132,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
 
             // Assert
             var objectResult = Assert.IsType<ObjectResult>(resultExecutingContext.Result);
-            Assert.Equal(1, objectResult.ContentTypes.Count);
+            Assert.Single(objectResult.ContentTypes);
             MediaTypeAssert.Equal(mediaType, objectResult.ContentTypes[0]);
         }
 
@@ -147,7 +147,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             var mockObjects = new MockObjects(format, place);
             var resourceExecutingContext = mockObjects.CreateResourceExecutingContext(new IFilterMetadata[] { });
 
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             filter.OnResourceExecuting(resourceExecutingContext);
@@ -164,7 +164,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             var mockObjects = new MockObjects();
             var resourceExecutingContext = mockObjects.CreateResourceExecutingContext(new IFilterMetadata[] { });
 
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             filter.OnResourceExecuting(resourceExecutingContext);
@@ -186,7 +186,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             var mockObjects = new MockObjects(format, place);
             var resourceExecutingContext = mockObjects.CreateResourceExecutingContext(new IFilterMetadata[] { produces });
 
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             filter.OnResourceExecuting(resourceExecutingContext);
@@ -203,11 +203,11 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             var mockObjects = new MockObjects("xml", FormatSource.RouteData);
             var resourceExecutingContext = mockObjects.CreateResourceExecutingContext(new IFilterMetadata[] { produces });
 
-            mockObjects.Options.FormatterMappings.SetMediaTypeMappingForFormat(
+            mockObjects.MvcOptions.FormatterMappings.SetMediaTypeMappingForFormat(
                 "xml",
                 MediaTypeHeaderValue.Parse("application/xml"));
 
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             filter.OnResourceExecuting(resourceExecutingContext);
@@ -224,11 +224,11 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             var mockObjects = new MockObjects("xml", FormatSource.RouteData);
             var resourceExecutingContext = mockObjects.CreateResourceExecutingContext(new IFilterMetadata[] { produces });
 
-            mockObjects.Options.FormatterMappings.SetMediaTypeMappingForFormat(
+            mockObjects.MvcOptions.FormatterMappings.SetMediaTypeMappingForFormat(
                 "xml",
                 MediaTypeHeaderValue.Parse("application/xml;version=1"));
 
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             filter.OnResourceExecuting(resourceExecutingContext);
@@ -250,11 +250,11 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             var mockObjects = new MockObjects(format, place);
             var resourceExecutingContext = mockObjects.CreateResourceExecutingContext(new IFilterMetadata[] { produces });
 
-            mockObjects.Options.FormatterMappings.SetMediaTypeMappingForFormat(
+            mockObjects.MvcOptions.FormatterMappings.SetMediaTypeMappingForFormat(
                 "xml",
                 MediaTypeHeaderValue.Parse("application/xml"));
 
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             filter.OnResourceExecuting(resourceExecutingContext);
@@ -273,7 +273,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             // Arrange
             var mockObjects = new MockObjects(format, place);
             var resourceExecutingContext = mockObjects.CreateResourceExecutingContext(new IFilterMetadata[] { });
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             filter.OnResourceExecuting(resourceExecutingContext);
@@ -296,7 +296,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             var mockObjects = new MockObjects(input, place);
             var context = mockObjects.CreateResultExecutingContext();
             var filterAttribute = new FormatFilterAttribute();
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             var format = filter.GetFormat(context);
@@ -328,7 +328,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
                 new IFilterMetadata[] { },
                 new List<IValueProviderFactory>());
 
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             filter.OnResourceExecuting(resourceExecutingContext);
@@ -336,7 +336,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
 
             // Assert
             var result = Assert.IsType<ObjectResult>(resultExecutingContext.Result);
-            Assert.Equal(1, result.ContentTypes.Count);
+            Assert.Single(result.ContentTypes);
             MediaTypeAssert.Equal(mediaType, result.ContentTypes[0]);
         }
 
@@ -363,7 +363,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
                 new IFilterMetadata[] { },
                 new List<IValueProviderFactory>());
 
-            var filter = new FormatFilter(mockObjects.OptionsManager);
+            var filter = new FormatFilter(mockObjects.OptionsManager, NullLoggerFactory.Instance);
 
             // Act
             filter.OnResourceExecuting(resourceExecutingContext);
@@ -371,13 +371,12 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
 
             // Assert
             var result = Assert.IsType<ObjectResult>(resultExecutingContext.Result);
-            Assert.Equal(0, result.ContentTypes.Count);
+            Assert.Empty(result.ContentTypes);
         }
-
 
         private class MockObjects
         {
-            public MvcOptions Options { get; private set; }
+            public MvcOptions MvcOptions { get; private set; }
             public HttpContext MockHttpContext { get; private set; }
             public ActionContext MockActionContext { get; private set; }
 
@@ -442,20 +441,20 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
                 string format = null,
                 FormatSource? place = null)
             {
-                OptionsManager = new TestOptionsManager<MvcOptions>();
+                OptionsManager = Options.Create(new MvcOptions());
 
                 // Setup options on mock service provider
-                Options = OptionsManager.Value;
+                MvcOptions = OptionsManager.Value;
 
                 // Set up default output formatters.
-                Options.OutputFormatters.Add(new HttpNoContentOutputFormatter());
-                Options.OutputFormatters.Add(new StringOutputFormatter());
-                Options.OutputFormatters.Add(new JsonOutputFormatter(
+                MvcOptions.OutputFormatters.Add(new HttpNoContentOutputFormatter());
+                MvcOptions.OutputFormatters.Add(new StringOutputFormatter());
+                MvcOptions.OutputFormatters.Add(new JsonOutputFormatter(
                     new JsonSerializerSettings(),
                     ArrayPool<char>.Shared));
 
                 // Set up default mapping for json extensions to content type
-                Options.FormatterMappings.SetMediaTypeMappingForFormat(
+                MvcOptions.FormatterMappings.SetMediaTypeMappingForFormat(
                     "json",
                     MediaTypeHeaderValue.Parse("application/json"));
 

@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Xml;
 using Microsoft.AspNetCore.Mvc.Formatters.Xml;
 using Microsoft.AspNetCore.Mvc.Formatters.Xml.Internal;
+using Microsoft.Extensions.Logging;
 
 namespace Microsoft.AspNetCore.Mvc.Formatters
 {
@@ -21,22 +22,43 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
     public class XmlDataContractSerializerOutputFormatter : TextOutputFormatter
     {
         private readonly ConcurrentDictionary<Type, object> _serializerCache = new ConcurrentDictionary<Type, object>();
+        private readonly ILogger _logger;
         private DataContractSerializerSettings _serializerSettings;
 
         /// <summary>
         /// Initializes a new instance of <see cref="XmlDataContractSerializerOutputFormatter"/>
-        /// with default XmlWriterSettings
+        /// with default <see cref="XmlWriterSettings"/>.
         /// </summary>
-        public XmlDataContractSerializerOutputFormatter() :
-            this(FormattingUtilities.GetDefaultXmlWriterSettings())
+        public XmlDataContractSerializerOutputFormatter()
+            : this(FormattingUtilities.GetDefaultXmlWriterSettings())
         {
         }
 
         /// <summary>
         /// Initializes a new instance of <see cref="XmlDataContractSerializerOutputFormatter"/>
+        /// with default <see cref="XmlWriterSettings"/>.
+        /// </summary>
+        /// <param name="loggerFactory">The <see cref="ILoggerFactory"/>.</param>
+        public XmlDataContractSerializerOutputFormatter(ILoggerFactory loggerFactory)
+            : this(FormattingUtilities.GetDefaultXmlWriterSettings(), loggerFactory)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of <see cref="XmlDataContractSerializerOutputFormatter"/>.
         /// </summary>
         /// <param name="writerSettings">The settings to be used by the <see cref="DataContractSerializer"/>.</param>
         public XmlDataContractSerializerOutputFormatter(XmlWriterSettings writerSettings)
+            : this(writerSettings, loggerFactory: null)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of <see cref="XmlDataContractSerializerOutputFormatter"/>.
+        /// </summary>
+        /// <param name="writerSettings">The settings to be used by the <see cref="DataContractSerializer"/>.</param>
+        /// <param name="loggerFactory">The <see cref="ILoggerFactory"/>.</param>
+        public XmlDataContractSerializerOutputFormatter(XmlWriterSettings writerSettings, ILoggerFactory loggerFactory)
         {
             if (writerSettings == null)
             {
@@ -57,6 +79,8 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             WrapperProviderFactories = new List<IWrapperProviderFactory>();
             WrapperProviderFactories.Add(new EnumerableWrapperProviderFactory(WrapperProviderFactories));
             WrapperProviderFactories.Add(new SerializableErrorWrapperProviderFactory());
+
+            _logger = loggerFactory?.CreateLogger(GetType());
         }
 
         /// <summary>
@@ -138,8 +162,10 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
                 // If the serializer does not support this type it will throw an exception.
                 return new DataContractSerializer(type, _serializerSettings);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger?.FailedToCreateDataContractSerializer(type.FullName, ex);
+
                 // We do not surface the caught exception because if CanWriteResult returns
                 // false, then this Formatter is not picked up at all.
                 return null;
@@ -177,6 +203,26 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
             return XmlWriter.Create(writer, xmlWriterSettings);
         }
 
+        /// <summary>
+        /// Creates a new instance of <see cref="XmlWriter"/> using the given <see cref="TextWriter"/> and
+        /// <see cref="XmlWriterSettings"/>.
+        /// </summary>
+        /// <param name="context">The formatter context associated with the call.</param>
+        /// <param name="writer">
+        /// The underlying <see cref="TextWriter"/> which the <see cref="XmlWriter"/> should write to.
+        /// </param>
+        /// <param name="xmlWriterSettings">
+        /// The <see cref="XmlWriterSettings"/>.
+        /// </param>
+        /// <returns>A new instance of <see cref="XmlWriter"/>.</returns>
+        public virtual XmlWriter CreateXmlWriter(
+            OutputFormatterWriteContext context,
+            TextWriter writer,
+            XmlWriterSettings xmlWriterSettings)
+        {
+            return CreateXmlWriter(writer, xmlWriterSettings);
+        }
+
         /// <inheritdoc />
         public override async Task WriteResponseBodyAsync(OutputFormatterWriteContext context, Encoding selectedEncoding)
         {
@@ -209,7 +255,7 @@ namespace Microsoft.AspNetCore.Mvc.Formatters
 
             using (var textWriter = context.WriterFactory(context.HttpContext.Response.Body, writerSettings.Encoding))
             {
-                using (var xmlWriter = CreateXmlWriter(textWriter, writerSettings))
+                using (var xmlWriter = CreateXmlWriter(context, textWriter, writerSettings))
                 {
                     dataContractSerializer.WriteObject(xmlWriter, value);
                 }

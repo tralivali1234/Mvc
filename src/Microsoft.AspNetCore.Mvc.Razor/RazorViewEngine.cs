@@ -43,12 +43,13 @@ namespace Microsoft.AspNetCore.Mvc.Razor
         private readonly HtmlEncoder _htmlEncoder;
         private readonly ILogger _logger;
         private readonly RazorViewEngineOptions _options;
-        private readonly RazorProject _razorProject;
+        private readonly RazorProject _razorFileSystem;
         private readonly DiagnosticSource _diagnosticSource;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="RazorViewEngine" />.
         /// </summary>
+        [Obsolete("This constructor is obsolete and will be removed in a future version.")]
         public RazorViewEngine(
             IRazorPageFactoryProvider pageFactory,
             IRazorPageActivator pageActivator,
@@ -78,9 +79,26 @@ namespace Microsoft.AspNetCore.Mvc.Razor
             _pageActivator = pageActivator;
             _htmlEncoder = htmlEncoder;
             _logger = loggerFactory.CreateLogger<RazorViewEngine>();
-            _razorProject = razorProject;
+            _razorFileSystem = razorProject;
             _diagnosticSource = diagnosticSource;
             ViewLookupCache = new MemoryCache(new MemoryCacheOptions());
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the RazorViewEngine
+        /// </summary>
+        public RazorViewEngine(
+            IRazorPageFactoryProvider pageFactory,
+            IRazorPageActivator pageActivator,
+            HtmlEncoder htmlEncoder,
+            IOptions<RazorViewEngineOptions> optionsAccessor,
+            RazorProjectFileSystem razorFileSystem,
+            ILoggerFactory loggerFactory,
+            DiagnosticSource diagnosticSource)
+#pragma warning disable CS0618 // Type or member is obsolete
+            : this (pageFactory, pageActivator, htmlEncoder, optionsAccessor, (RazorProject)razorFileSystem, loggerFactory, diagnosticSource)
+#pragma warning restore CS0618 // Type or member is obsolete
+        {
         }
 
         /// <summary>
@@ -205,8 +223,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
         {
             var applicationRelativePath = GetAbsolutePath(executingFilePath, pagePath);
             var cacheKey = new ViewLocationCacheKey(applicationRelativePath, isMainPage);
-            ViewLocationCacheResult cacheResult;
-            if (!ViewLookupCache.TryGetValue(cacheKey, out cacheResult))
+            if (!ViewLookupCache.TryGetValue(cacheKey, out ViewLocationCacheResult cacheResult))
             {
                 var expirationTokens = new HashSet<IChangeToken>();
                 cacheResult = CreateCacheResult(expirationTokens, applicationRelativePath, isMainPage);
@@ -240,7 +257,13 @@ namespace Microsoft.AspNetCore.Mvc.Razor
         {
             var controllerName = GetNormalizedRouteValue(actionContext, ControllerKey);
             var areaName = GetNormalizedRouteValue(actionContext, AreaKey);
-            var razorPageName = GetNormalizedRouteValue(actionContext, PageKey);
+            string razorPageName = null;
+            if (actionContext.ActionDescriptor.RouteValues.ContainsKey(PageKey))
+            {
+                // Only calculate the Razor Page name if "page" is registered in RouteValues.
+                razorPageName = GetNormalizedRouteValue(actionContext, PageKey);
+            }
+
             var expanderContext = new ViewLocationExpanderContext(
                 actionContext,
                 pageName,
@@ -270,8 +293,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
                 expanderContext.IsMainPage,
                 expanderValues);
 
-            ViewLocationCacheResult cacheResult;
-            if (!ViewLookupCache.TryGetValue(cacheKey, out cacheResult))
+            if (!ViewLookupCache.TryGetValue(cacheKey, out ViewLocationCacheResult cacheResult))
             {
                 _logger.ViewLookupCacheMiss(cacheKey.ViewName, cacheKey.ControllerName);
                 cacheResult = OnCacheMiss(expanderContext, cacheKey);
@@ -329,6 +351,11 @@ namespace Microsoft.AspNetCore.Mvc.Razor
             {
                 return _options.ViewLocationFormats;
             }
+            else if (!string.IsNullOrEmpty(context.AreaName) &&
+                !string.IsNullOrEmpty(context.PageName))
+            {
+                return _options.AreaPageViewLocationFormats;
+            }
             else if (!string.IsNullOrEmpty(context.PageName))
             {
                 return _options.PageViewLocationFormats;
@@ -363,6 +390,8 @@ namespace Microsoft.AspNetCore.Mvc.Razor
                     expanderContext.ViewName,
                     expanderContext.ControllerName,
                     expanderContext.AreaName);
+
+                path = ViewEnginePath.ResolvePath(path);
 
                 cacheResult = CreateCacheResult(expirationTokens, path, expanderContext.IsMainPage);
                 if (cacheResult != null)
@@ -430,7 +459,7 @@ namespace Microsoft.AspNetCore.Mvc.Razor
         {
             var viewStartPages = new List<ViewLocationCacheItem>();
 
-            foreach (var viewStartProjectItem in _razorProject.FindHierarchicalItems(path, ViewStartFileName))
+            foreach (var viewStartProjectItem in _razorFileSystem.FindHierarchicalItems(path, ViewStartFileName))
             {
                 var result = _pageFactory.CreateFactory(viewStartProjectItem.FilePath);
                 var viewDescriptor = result.ViewDescriptor;

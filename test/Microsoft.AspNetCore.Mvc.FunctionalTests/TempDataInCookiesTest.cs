@@ -18,7 +18,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
     {
         public TempDataInCookiesTest(MvcTestFixture<BasicWebSite.Startup> fixture)
         {
-            Client = fixture.Client;
+            Client = fixture.CreateDefaultClient();
         }
 
         protected override HttpClient Client { get; }
@@ -137,7 +137,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
-        public async Task CookieTempDataProviderCookie_SetsSecureAttributeOnCookie_OnlyIfRequestIsSecure(bool secureRequest)
+        public async Task CookieTempDataProviderCookie_DoesNotSetsSecureAttributeOnCookie(bool secureRequest)
         {
             // Arrange
             var protocol = secureRequest ? "https" : "http";
@@ -159,7 +159,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             Assert.NotNull(setCookieHeader);
             Assert.Equal("/", setCookieHeader.Path);
             Assert.Null(setCookieHeader.Domain.Value);
-            Assert.Equal(secureRequest, setCookieHeader.Secure);
+            Assert.False(setCookieHeader.Secure);
             Assert.Null(setCookieHeader.Expires);
         }
     }

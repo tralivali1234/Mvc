@@ -3,10 +3,8 @@
 
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using System.Reflection;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.Mvc.Razor;
 using Microsoft.AspNetCore.Razor.TagHelpers;
@@ -30,10 +28,10 @@ namespace RazorWebSite
                 {
                     options.FileProviders.Add(new EmbeddedFileProvider(
                         typeof(Startup).GetTypeInfo().Assembly,
-                        $"{nameof(RazorWebSite)}.EmbeddedViews"));
+                        $"{nameof(RazorWebSite)}.EmbeddedResources"));
                     options.FileProviders.Add(updateableFileProvider);
                     options.ViewLocationExpanders.Add(new NonMainPageViewLocationExpander());
-                    options.ViewLocationExpanders.Add(new ForwardSlashExpander());
+                    options.ViewLocationExpanders.Add(new BackSlashExpander());
                 })
                 .AddViewOptions(options =>
                 {
@@ -43,7 +41,7 @@ namespace RazorWebSite
                     options.HtmlHelperOptions.ValidationMessageElement = "validationMessageElement";
                     options.HtmlHelperOptions.ValidationSummaryMessageElement = "validationSummaryElement";
                 })
-                .AddViewLocalization(LanguageViewLocationExpanderFormat.SubFolder);
+                .AddMvcLocalization(LanguageViewLocationExpanderFormat.SubFolder);
 
             services.AddTransient<InjectedHelper>();
             services.AddTransient<TaskReturningService>();
@@ -72,18 +70,5 @@ namespace RazorWebSite
 
             app.UseMvcWithDefaultRoute();
         }
-
-        public static void Main(string[] args)
-        {
-            var host = new WebHostBuilder()
-                .UseContentRoot(Directory.GetCurrentDirectory())
-                .UseStartup<Startup>()
-                .UseKestrel()
-                .UseIISIntegration()
-                .Build();
-
-            host.Run();
-        }
     }
 }
-

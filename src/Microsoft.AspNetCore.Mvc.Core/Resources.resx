@@ -1,17 +1,17 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
-  <!--
-    Microsoft ResX Schema
-
+  <!-- 
+    Microsoft ResX Schema 
+    
     Version 2.0
-
-    The primary goals of this format is to allow a simple XML format
-    that is mostly human readable. The generation and parsing of the
-    various data types are done through the TypeConverter classes
+    
+    The primary goals of this format is to allow a simple XML format 
+    that is mostly human readable. The generation and parsing of the 
+    various data types are done through the TypeConverter classes 
     associated with the data types.
-
+    
     Example:
-
+    
     ... ado.net/XML headers & schema ...
     <resheader name="resmimetype">text/microsoft-resx</resheader>
     <resheader name="version">2.0</resheader>
@@ -26,36 +26,36 @@
         <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
         <comment>This is a comment</comment>
     </data>
-
-    There are any number of "resheader" rows that contain simple
+                
+    There are any number of "resheader" rows that contain simple 
     name/value pairs.
-
-    Each data row contains a name, and value. The row also contains a
-    type or mimetype. Type corresponds to a .NET class that support
-    text/value conversion through the TypeConverter architecture.
-    Classes that don't support this are serialized and stored with the
+    
+    Each data row contains a name, and value. The row also contains a 
+    type or mimetype. Type corresponds to a .NET class that support 
+    text/value conversion through the TypeConverter architecture. 
+    Classes that don't support this are serialized and stored with the 
     mimetype set.
-
-    The mimetype is used for serialized objects, and tells the
-    ResXResourceReader how to depersist the object. This is currently not
+    
+    The mimetype is used for serialized objects, and tells the 
+    ResXResourceReader how to depersist the object. This is currently not 
     extensible. For a given mimetype the value must be set accordingly:
-
-    Note - application/x-microsoft.net.object.binary.base64 is the format
-    that the ResXResourceWriter will generate, however the reader can
+    
+    Note - application/x-microsoft.net.object.binary.base64 is the format 
+    that the ResXResourceWriter will generate, however the reader can 
     read any of the formats listed below.
-
+    
     mimetype: application/x-microsoft.net.object.binary.base64
-    value   : The object must be serialized with
+    value   : The object must be serialized with 
             : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
             : and then encoded with base64 encoding.
-
+    
     mimetype: application/x-microsoft.net.object.soap.base64
-    value   : The object must be serialized with
+    value   : The object must be serialized with 
             : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
             : and then encoded with base64 encoding.
 
     mimetype: application/x-microsoft.net.object.bytearray.base64
-    value   : The object must be serialized into a byte array
+    value   : The object must be serialized into a byte array 
             : using a System.ComponentModel.TypeConverter
             : and then encoded with base64 encoding.
     -->
@@ -400,7 +400,7 @@
     <value>'{0}' and '{1}' are out of bounds for the string.</value>
     <comment>'{0}' and '{1}' are the parameters which combine to be out of bounds.</comment>
   </data>
-  <data name="ComplexTypeModelBinder_NoParameterlessConstructor_TopLevelObject" xml:space="preserve">
+  <data name="ComplexTypeModelBinder_NoParameterlessConstructor_ForType" xml:space="preserve">
     <value>Could not create an instance of type '{0}'. Model bound complex types must not be abstract or value types and must have a parameterless constructor.</value>
   </data>
   <data name="ComplexTypeModelBinder_NoParameterlessConstructor_ForProperty" xml:space="preserve">
@@ -411,5 +411,35 @@
   </data>
   <data name="UrlHelper_RelativePagePathIsNotSupported" xml:space="preserve">
     <value>The relative page path '{0}' can only be used while executing a Razor Page. Specify a root relative path with a leading '/' to generate a URL outside of a Razor Page.</value>
+  </data>
+  <data name="ValidationProblemDescription_Title" xml:space="preserve">
+    <value>One or more validation errors occurred.</value>
+  </data>
+  <data name="ApiController_AttributeRouteRequired" xml:space="preserve">
+    <value>Action '{0}' does not have an attribute route. Action methods on controllers annotated with {1} must be attribute routed.</value>
+  </data>
+  <data name="VirtualFileResultExecutor_NoFileProviderConfigured" xml:space="preserve">
+    <value>No file provider has been configured to process the supplied file.</value>
+  </data>
+  <data name="ApplicationPartFactory_InvalidFactoryType" xml:space="preserve">
+    <value>Type {0} specified by {1} is invalid. Type specified by {1} must derive from {2}.</value>
+  </data>
+  <data name="RelatedAssemblyAttribute_AssemblyCannotReferenceSelf" xml:space="preserve">
+    <value>{0} specified on {1} cannot be self referential.</value>
+  </data>
+  <data name="RelatedAssemblyAttribute_CouldNotBeFound" xml:space="preserve">
+    <value>Related assembly '{0}' specified by assembly '{1}' could not be found in the directory {2}. Related assemblies must be co-located with the specifying assemblies.</value>
+  </data>
+  <data name="ApplicationAssembliesProvider_DuplicateRelatedAssembly" xml:space="preserve">
+    <value>Each related assembly must be declared by exactly one assembly. The assembly '{0}' was declared as related assembly by the following:</value>
+  </data>
+  <data name="ApplicationAssembliesProvider_RelatedAssemblyCannotDefineAdditional" xml:space="preserve">
+    <value>Assembly '{0}' declared as a related assembly by assembly '{1}' cannot define additional related assemblies.</value>
+  </data>
+  <data name="ComplexTypeModelBinder_NoParameterlessConstructor_ForParameter" xml:space="preserve">
+    <value>Could not create an instance of type '{0}'. Model bound complex types must not be abstract or value types and must have a parameterless constructor. Alternatively, give the '{1}' parameter a non-null default value.</value>
+  </data>
+  <data name="ApiController_MultipleBodyParametersFound" xml:space="preserve">
+    <value>Action '{0}' has more than one parameter that was specified or inferred as bound from request body. Only one parameter per action may be bound from body. Inspect the following parameters, and use '{1}' to specify bound from query, '{2}' to specify bound from route, and '{3}' for parameters to be bound from body:</value>
   </data>
 </root>

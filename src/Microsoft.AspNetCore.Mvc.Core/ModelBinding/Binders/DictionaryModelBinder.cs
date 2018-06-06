@@ -9,6 +9,8 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Internal;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
 {
@@ -22,12 +24,27 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
         private readonly IModelBinder _valueBinder;
 
         /// <summary>
+        /// <para>This constructor is obsolete and will be removed in a future version. The recommended alternative
+        /// is the overload that also takes an <see cref="ILoggerFactory"/>.</para>
+        /// <para>Creates a new <see cref="DictionaryModelBinder{TKey, TValue}"/>.</para>
+        /// </summary>
+        /// <param name="keyBinder">The <see cref="IModelBinder"/> for <typeparamref name="TKey"/>.</param>
+        /// <param name="valueBinder">The <see cref="IModelBinder"/> for <typeparamref name="TValue"/>.</param>
+        [Obsolete("This constructor is obsolete and will be removed in a future version. The recommended alternative"
+            + " is the overload that also takes an " + nameof(ILoggerFactory) + ".")]
+        public DictionaryModelBinder(IModelBinder keyBinder, IModelBinder valueBinder)
+            : this(keyBinder, valueBinder, NullLoggerFactory.Instance)
+        {
+        }
+
+        /// <summary>
         /// Creates a new <see cref="DictionaryModelBinder{TKey, TValue}"/>.
         /// </summary>
         /// <param name="keyBinder">The <see cref="IModelBinder"/> for <typeparamref name="TKey"/>.</param>
         /// <param name="valueBinder">The <see cref="IModelBinder"/> for <typeparamref name="TValue"/>.</param>
-        public DictionaryModelBinder(IModelBinder keyBinder, IModelBinder valueBinder)
-            : base(new KeyValuePairModelBinder<TKey, TValue>(keyBinder, valueBinder))
+        /// <param name="loggerFactory">The <see cref="ILoggerFactory"/>.</param>
+        public DictionaryModelBinder(IModelBinder keyBinder, IModelBinder valueBinder, ILoggerFactory loggerFactory)
+            : base(new KeyValuePairModelBinder<TKey, TValue>(keyBinder, valueBinder, loggerFactory), loggerFactory)
         {
             if (valueBinder == null)
             {
@@ -62,8 +79,9 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
                 return;
             }
 
-            var enumerableValueProvider = bindingContext.ValueProvider as IEnumerableValueProvider;
-            if (enumerableValueProvider == null)
+            Logger.NoKeyValueFormatForDictionaryModelBinder(bindingContext);
+
+            if (!(bindingContext.ValueProvider is IEnumerableValueProvider enumerableValueProvider))
             {
                 // No IEnumerableValueProvider available for the fallback approach. For example the user may have
                 // replaced the ValueProvider with something other than a CompositeValueProvider.
@@ -71,7 +89,8 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
             }
 
             // Attempt to bind dictionary from a set of prefix[key]=value entries. Get the short and long keys first.
-            var keys = enumerableValueProvider.GetKeysFromPrefix(bindingContext.ModelName);
+            var prefix = bindingContext.ModelName;
+            var keys = enumerableValueProvider.GetKeysFromPrefix(prefix);
             if (keys.Count == 0)
             {
                 // No entries with the expected keys.
@@ -98,10 +117,29 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
                     await _valueBinder.BindModelAsync(bindingContext);
 
                     var valueResult = bindingContext.Result;
+                    if (!valueResult.IsModelSet)
+                    {
+                        // Factories for IKeyRewriterValueProvider implementations are not all-or-nothing i.e.
+                        // "[key][propertyName]" may be rewritten as ".key.propertyName" or "[key].propertyName". Try
+                        // again in case this scope is binding a complex type and rewriting
+                        // landed on ".key.propertyName" or in case this scope is binding another collection and an
+                        // IKeyRewriterValueProvider implementation was first (hiding the original "[key][next key]").
+                        if (kvp.Value.EndsWith("]"))
+                        {
+                            bindingContext.ModelName = ModelNames.CreatePropertyModelName(prefix, kvp.Key);
+                        }
+                        else
+                        {
+                            bindingContext.ModelName = ModelNames.CreateIndexModelName(prefix, kvp.Key);
+                        }
+
+                        await _valueBinder.BindModelAsync(bindingContext);
+                        valueResult = bindingContext.Result;
+                    }
 
                     // Always add an entry to the dictionary but validate only if binding was successful.
                     model[convertedKey] = ModelBindingHelper.CastOrDefault<TValue>(valueResult.Model);
-                    keyMappings.Add(kvp.Key, convertedKey);
+                    keyMappings.Add(bindingContext.ModelName, convertedKey);
                 }
             }
 

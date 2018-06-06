@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
 
 namespace Microsoft.Extensions.DependencyInjection
@@ -17,7 +18,8 @@ namespace Microsoft.Extensions.DependencyInjection
         /// </summary>
         /// <param name="list">The list of <see cref="IApplicationModelConvention"/>s.</param>
         /// <typeparam name="TApplicationModelConvention">The type to remove.</typeparam>
-        public static void RemoveType<TApplicationModelConvention>(this IList<IApplicationModelConvention> list) where TApplicationModelConvention : IApplicationModelConvention
+        public static void RemoveType<TApplicationModelConvention>(this IList<IApplicationModelConvention> list)
+            where TApplicationModelConvention : IApplicationModelConvention
         {
             if (list == null)
             {
@@ -126,17 +128,36 @@ namespace Microsoft.Extensions.DependencyInjection
             conventions.Add(new ParameterApplicationModelConvention(parameterModelConvention));
         }
 
+        /// <summary>
+        /// Adds a <see cref="IParameterModelBaseConvention"/> to all properties and parameters in the application.
+        /// </summary>
+        /// <param name="conventions">The list of <see cref="IApplicationModelConvention"/>
+        /// in <see cref="AspNetCore.Mvc.MvcOptions"/>.</param>
+        /// <param name="parameterModelConvention">The <see cref="IParameterModelBaseConvention"/> which needs to be
+        /// added.</param>
+        public static void Add(
+            this IList<IApplicationModelConvention> conventions,
+            IParameterModelBaseConvention parameterModelConvention)
+        {
+            if (conventions == null)
+            {
+                throw new ArgumentNullException(nameof(conventions));
+            }
+
+            if (parameterModelConvention == null)
+            {
+                throw new ArgumentNullException(nameof(parameterModelConvention));
+            }
+
+            conventions.Add(new ParameterBaseApplicationModelConvention(parameterModelConvention));
+        }
+
         private class ParameterApplicationModelConvention : IApplicationModelConvention
         {
             private readonly IParameterModelConvention _parameterModelConvention;
 
             public ParameterApplicationModelConvention(IParameterModelConvention parameterModelConvention)
             {
-                if (parameterModelConvention == null)
-                {
-                    throw new ArgumentNullException(nameof(parameterModelConvention));
-                }
-
                 _parameterModelConvention = parameterModelConvention;
             }
 
@@ -148,16 +169,51 @@ namespace Microsoft.Extensions.DependencyInjection
                     throw new ArgumentNullException(nameof(application));
                 }
 
-                foreach (var controller in application.Controllers)
+                // Create copies of collections of controllers, actions and parameters as users could modify
+                // these collections from within the convention itself.
+                var controllers = application.Controllers.ToArray();
+                foreach (var controller in controllers)
                 {
-                    foreach (var action in controller.Actions)
+                    var actions = controller.Actions.ToArray();
+                    foreach (var action in actions)
                     {
-                        foreach (var parameter in action.Parameters)
+                        var parameters = action.Parameters.ToArray();
+                        foreach (var parameter in parameters)
                         {
                             _parameterModelConvention.Apply(parameter);
                         }
                     }
                 }
+            }
+        }
+
+        private class ParameterBaseApplicationModelConvention :
+            IApplicationModelConvention, IParameterModelBaseConvention
+        {
+            private readonly IParameterModelBaseConvention _parameterBaseModelConvention;
+
+            public ParameterBaseApplicationModelConvention(IParameterModelBaseConvention parameterModelBaseConvention)
+            {
+                _parameterBaseModelConvention = parameterModelBaseConvention;
+            }
+
+            /// <inheritdoc />
+            public void Apply(ApplicationModel application)
+            {
+                if (application == null)
+                {
+                    throw new ArgumentNullException(nameof(application));
+                }
+            }
+
+            void IParameterModelBaseConvention.Apply(ParameterModelBase parameterModel)
+            {
+                if (parameterModel == null)
+                {
+                    throw new ArgumentNullException(nameof(parameterModel));
+                }
+
+                _parameterBaseModelConvention.Apply(parameterModel);
             }
         }
 
@@ -183,9 +239,13 @@ namespace Microsoft.Extensions.DependencyInjection
                     throw new ArgumentNullException(nameof(application));
                 }
 
-                foreach (var controller in application.Controllers)
+                // Create copies of collections of controllers, actions and parameters as users could modify
+                // these collections from within the convention itself.
+                var controllers = application.Controllers.ToArray();
+                foreach (var controller in controllers)
                 {
-                    foreach (var action in controller.Actions)
+                    var actions = controller.Actions.ToArray();
+                    foreach (var action in actions)
                     {
                         _actionModelConvention.Apply(action);
                     }
@@ -215,7 +275,8 @@ namespace Microsoft.Extensions.DependencyInjection
                     throw new ArgumentNullException(nameof(application));
                 }
 
-                foreach (var controller in application.Controllers)
+                var controllers = application.Controllers.ToArray();
+                foreach (var controller in controllers)
                 {
                     _controllerModelConvention.Apply(controller);
                 }

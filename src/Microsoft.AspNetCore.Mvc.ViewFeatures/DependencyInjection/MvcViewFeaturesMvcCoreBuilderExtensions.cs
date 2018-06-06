@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Mvc.Formatters;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.ViewComponents;
@@ -142,14 +143,16 @@ namespace Microsoft.Extensions.DependencyInjection
             services.TryAddEnumerable(
                 ServiceDescriptor.Transient<IConfigureOptions<MvcViewOptions>, MvcViewOptionsSetup>());
             services.TryAddEnumerable(
+                ServiceDescriptor.Transient<IPostConfigureOptions<MvcViewOptions>, MvcViewOptionsConfigureCompatibilityOptions>());
+            services.TryAddEnumerable(
                 ServiceDescriptor.Transient<IConfigureOptions<MvcOptions>, TempDataMvcOptionsSetup>());
 
             //
             // View Engine and related infrastructure
             //
             services.TryAddSingleton<ICompositeViewEngine, CompositeViewEngine>();
-            services.TryAddSingleton<ViewResultExecutor>();
-            services.TryAddSingleton<PartialViewResultExecutor>();
+            services.TryAddSingleton<IActionResultExecutor<ViewResult>, ViewResultExecutor>();
+            services.TryAddSingleton<IActionResultExecutor<PartialViewResult>, PartialViewResultExecutor>();
 
             // Support for activating ViewDataDictionary
             services.TryAddEnumerable(
@@ -188,7 +191,7 @@ namespace Microsoft.Extensions.DependencyInjection
             services.TryAddSingleton<
                 IViewComponentDescriptorCollectionProvider,
                 DefaultViewComponentDescriptorCollectionProvider>();
-            services.TryAddSingleton<ViewComponentResultExecutor>();
+            services.TryAddSingleton<IActionResultExecutor<ViewComponentResult>, ViewComponentResultExecutor>();
 
             services.TryAddSingleton<ViewComponentInvokerCache>();
             services.TryAddTransient<IViewComponentDescriptorProvider, DefaultViewComponentDescriptorProvider>();
@@ -200,6 +203,8 @@ namespace Microsoft.Extensions.DependencyInjection
             //
             services.TryAddEnumerable(
                 ServiceDescriptor.Transient<IApplicationModelProvider, TempDataApplicationModelProvider>());
+            services.TryAddEnumerable(
+                ServiceDescriptor.Transient<IApplicationModelProvider, ViewDataAttributeApplicationModelProvider>());
             services.TryAddSingleton<SaveTempDataFilter>();
 
 

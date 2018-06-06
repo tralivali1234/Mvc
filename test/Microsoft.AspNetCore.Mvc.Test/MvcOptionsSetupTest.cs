@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -59,6 +60,7 @@ namespace Microsoft.AspNetCore.Mvc
                 binder => Assert.IsType<BodyModelBinderProvider>(binder),
                 binder => Assert.IsType<HeaderModelBinderProvider>(binder),
                 binder => Assert.IsType<FloatingPointTypeModelBinderProvider>(binder),
+                binder => Assert.IsType<EnumTypeModelBinderProvider>(binder),
                 binder => Assert.IsType<SimpleTypeModelBinderProvider>(binder),
                 binder => Assert.IsType<CancellationTokenModelBinderProvider>(binder),
                 binder => Assert.IsType<ByteArrayModelBinderProvider>(binder),
@@ -183,6 +185,18 @@ namespace Microsoft.AspNetCore.Mvc
                 },
                 provider =>
                 {
+                    var formFileParameter = Assert.IsType<BindingSourceMetadataProvider>(provider);
+                    Assert.Equal(typeof(IFormFileCollection), formFileParameter.Type);
+                    Assert.Equal(BindingSource.FormFile, formFileParameter.BindingSource);
+                },
+                provider =>
+                {
+                    var formFileParameter = Assert.IsType<BindingSourceMetadataProvider>(provider);
+                    Assert.Equal(typeof(IEnumerable<IFormFile>), formFileParameter.Type);
+                    Assert.Equal(BindingSource.FormFile, formFileParameter.BindingSource);
+                },
+                provider =>
+                {
                     var excludeFilter = Assert.IsType<SuppressChildValidationMetadataProvider>(provider);
                     Assert.Equal(typeof(Type), excludeFilter.Type);
                 },
@@ -205,6 +219,11 @@ namespace Microsoft.AspNetCore.Mvc
                 {
                     var excludeFilter = Assert.IsType<SuppressChildValidationMetadataProvider>(provider);
                     Assert.Equal(typeof(IFormCollection), excludeFilter.Type);
+                },
+                provider =>
+                {
+                    var excludeFilter = Assert.IsType<SuppressChildValidationMetadataProvider>(provider);
+                    Assert.Equal(typeof(IFormFileCollection), excludeFilter.Type);
                 },
                 provider =>
                 {

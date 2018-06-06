@@ -11,12 +11,14 @@ using Microsoft.AspNetCore.Mvc.ActionConstraints;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Internal;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging.Testing;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
@@ -299,8 +301,8 @@ namespace Microsoft.AspNetCore.Mvc.Infrastructure
 
             // Assert
             Assert.Empty(sink.Scopes);
-            Assert.Single(sink.Writes);
-            Assert.Equal(expectedMessage, sink.Writes[0].State?.ToString());
+            var write = Assert.Single(sink.Writes);
+            Assert.Equal(expectedMessage, write.State?.ToString());
         }
 
         [Fact]
@@ -768,7 +770,7 @@ namespace Microsoft.AspNetCore.Mvc.Infrastructure
             {
                 new DefaultActionConstraintProvider(),
             };
-            
+
             var actionSelector = new ActionSelector(
                 actionDescriptorCollectionProvider,
                 GetActionConstraintCache(actionConstraintProviders),
@@ -785,11 +787,11 @@ namespace Microsoft.AspNetCore.Mvc.Infrastructure
                 .Select(t => t.GetTypeInfo())
                 .ToList();
 
-            var options = new TestOptionsManager<MvcOptions>();
+            var options = Options.Create(new MvcOptions());
 
             var manager = GetApplicationManager(controllerTypes);
 
-            var modelProvider = new DefaultApplicationModelProvider(options);
+            var modelProvider = new DefaultApplicationModelProvider(options, new EmptyModelMetadataProvider());
 
             var provider = new ControllerActionDescriptorProvider(
                 manager,
@@ -963,8 +965,7 @@ namespace Microsoft.AspNetCore.Mvc.Infrastructure
             {
                 foreach (var item in context.Results)
                 {
-                    var marker = item.Metadata as BooleanConstraintMarker;
-                    if (marker != null)
+                    if (item.Metadata is BooleanConstraintMarker marker)
                     {
                         Assert.Null(item.Constraint);
                         item.Constraint = new BooleanConstraint() { Pass = marker.Pass };

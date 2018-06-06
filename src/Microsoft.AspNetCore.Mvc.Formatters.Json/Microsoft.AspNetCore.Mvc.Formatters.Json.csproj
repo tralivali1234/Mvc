@@ -1,5 +1,4 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-  <Import Project="..\..\build\common.props" />
 
   <PropertyGroup>
     <Description>ASP.NET Core MVC formatters for JSON input and output and for JSON PATCH input using Json.NET.</Description>
@@ -12,7 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Microsoft.AspNetCore.Mvc.Core\Microsoft.AspNetCore.Mvc.Core.csproj" />
 
-    <PackageReference Include="Microsoft.AspNetCore.JsonPatch" Version="$(AspNetCoreVersion)" />
-    <PackageReference Include="Microsoft.Extensions.ClosedGenericMatcher.Sources" Version="$(AspNetCoreVersion)" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.AspNetCore.JsonPatch" Version="$(MicrosoftAspNetCoreJsonPatchPackageVersion)" />
+    <PackageReference Include="Microsoft.Extensions.ClosedGenericMatcher.Sources" PrivateAssets="All" Version="$(MicrosoftExtensionsClosedGenericMatcherSourcesPackageVersion)" />
   </ItemGroup>
 </Project>

@@ -4,7 +4,11 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Microsoft.AspNetCore.Mvc.ModelBinding
 {
@@ -15,18 +19,48 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
     {
         private readonly IModelMetadataProvider _modelMetadataProvider;
         private readonly IModelBinderFactory _modelBinderFactory;
-        private readonly IObjectModelValidator _validator;
+        private readonly MvcOptions _mvcOptions;
+        private readonly IObjectModelValidator _objectModelValidator;
 
         /// <summary>
-        /// Initializes a new instance of <see cref="ParameterDescriptor"/>.
+        /// <para>This constructor is obsolete and will be removed in a future version. The recommended alternative
+        /// is the overload that also takes a <see cref="MvcOptions"/> accessor and an <see cref="ILoggerFactory"/>.
+        /// </para>
+        /// <para>Initializes a new instance of <see cref="ParameterBinder"/>.</para>
         /// </summary>
         /// <param name="modelMetadataProvider">The <see cref="IModelMetadataProvider"/>.</param>
         /// <param name="modelBinderFactory">The <see cref="IModelBinderFactory"/>.</param>
         /// <param name="validator">The <see cref="IObjectModelValidator"/>.</param>
+        [Obsolete("This constructor is obsolete and will be removed in a future version. The recommended alternative"
+            + " is the overload that also takes a " + nameof(MvcOptions) + " accessor and an "
+            + nameof(ILoggerFactory) + " .")]
         public ParameterBinder(
             IModelMetadataProvider modelMetadataProvider,
             IModelBinderFactory modelBinderFactory,
             IObjectModelValidator validator)
+            : this(
+                  modelMetadataProvider,
+                  modelBinderFactory,
+                  validator,
+                  Options.Create(new MvcOptions()),
+                  NullLoggerFactory.Instance)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of <see cref="ParameterBinder"/>.
+        /// </summary>
+        /// <param name="modelMetadataProvider">The <see cref="IModelMetadataProvider"/>.</param>
+        /// <param name="modelBinderFactory">The <see cref="IModelBinderFactory"/>.</param>
+        /// <param name="validator">The <see cref="IObjectModelValidator"/>.</param>
+        /// <param name="mvcOptions">The <see cref="MvcOptions"/> accessor.</param>
+        /// <param name="loggerFactory">The <see cref="ILoggerFactory"/>.</param>
+        public ParameterBinder(
+            IModelMetadataProvider modelMetadataProvider,
+            IModelBinderFactory modelBinderFactory,
+            IObjectModelValidator validator,
+            IOptions<MvcOptions> mvcOptions,
+            ILoggerFactory loggerFactory)
         {
             if (modelMetadataProvider == null)
             {
@@ -43,10 +77,27 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
                 throw new ArgumentNullException(nameof(validator));
             }
 
+            if (mvcOptions == null)
+            {
+                throw new ArgumentNullException(nameof(mvcOptions));
+            }
+
+            if (loggerFactory == null)
+            {
+                throw new ArgumentNullException(nameof(loggerFactory));
+            }
+
             _modelMetadataProvider = modelMetadataProvider;
             _modelBinderFactory = modelBinderFactory;
-            _validator = validator;
+            _objectModelValidator = validator;
+            _mvcOptions = mvcOptions.Value;
+            Logger = loggerFactory.CreateLogger(GetType());
         }
+
+        /// <summary>
+        /// The <see cref="ILogger"/> used for logging in this binder.
+        /// </summary>
+        protected ILogger Logger { get; }
 
         /// <summary>
         /// Initializes and binds a model specified by <paramref name="parameter"/>.
@@ -152,8 +203,11 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
                 throw new ArgumentNullException(nameof(metadata));
             }
 
+            Logger.AttemptingToBindParameterOrProperty(parameter, metadata);
+
             if (parameter.BindingInfo?.RequestPredicate?.Invoke(actionContext) == false)
             {
+                Logger.ParameterBinderRequestPredicateShortCircuit(parameter, metadata);
                 return ModelBindingResult.Failed();
             }
 
@@ -184,17 +238,97 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
 
             await modelBinder.BindModelAsync(modelBindingContext);
 
+            Logger.DoneAttemptingToBindParameterOrProperty(parameter, metadata);
+
             var modelBindingResult = modelBindingContext.Result;
-            if (modelBindingResult.IsModelSet)
+
+            if (_mvcOptions.AllowValidatingTopLevelNodes &&
+                _objectModelValidator is ObjectModelValidator baseObjectValidator)
             {
-                _validator.Validate(
+                Logger.AttemptingToValidateParameterOrProperty(parameter, metadata);
+
+                EnforceBindRequiredAndValidate(
+                    baseObjectValidator,
                     actionContext,
-                    modelBindingContext.ValidationState,
-                    modelBindingContext.ModelName,
-                    modelBindingResult.Model);
+                    parameter,
+                    metadata,
+                    modelBindingContext,
+                    modelBindingResult);
+
+                Logger.DoneAttemptingToValidateParameterOrProperty(parameter, metadata);
+            }
+            else
+            {
+                // For legacy implementations (which directly implemented IObjectModelValidator), fall back to the
+                // back-compatibility logic. In this scenario, top-level validation attributes will be ignored like
+                // they were historically.
+                if (modelBindingResult.IsModelSet)
+                {
+                    _objectModelValidator.Validate(
+                        actionContext,
+                        modelBindingContext.ValidationState,
+                        modelBindingContext.ModelName,
+                        modelBindingResult.Model);
+                }
             }
 
             return modelBindingResult;
+        }
+
+        private void EnforceBindRequiredAndValidate(
+            ObjectModelValidator baseObjectValidator,
+            ActionContext actionContext,
+            ParameterDescriptor parameter,
+            ModelMetadata metadata,
+            ModelBindingContext modelBindingContext,
+            ModelBindingResult modelBindingResult)
+        {
+            if (!modelBindingResult.IsModelSet && metadata.IsBindingRequired)
+            {
+                // Enforce BindingBehavior.Required (e.g., [BindRequired])
+                var modelName = modelBindingContext.FieldName;
+                var message = metadata.ModelBindingMessageProvider.MissingBindRequiredValueAccessor(modelName);
+                actionContext.ModelState.TryAddModelError(modelName, message);
+            }
+            else if (modelBindingResult.IsModelSet)
+            {
+                // Enforce any other validation rules
+                baseObjectValidator.Validate(
+                    actionContext,
+                    modelBindingContext.ValidationState,
+                    modelBindingContext.ModelName,
+                    modelBindingResult.Model,
+                    metadata);
+            }
+            else if (metadata.IsRequired)
+            {
+                // We need to special case the model name for cases where a 'fallback' to empty
+                // prefix occurred but binding wasn't successful. For these cases there will be no
+                // entry in validation state to match and determine the correct key.
+                //
+                // See https://github.com/aspnet/Mvc/issues/7503
+                //
+                // This is to avoid adding validation errors for an 'empty' prefix when a simple
+                // type fails to bind. The fix for #7503 uncovered this issue, and was likely the
+                // original problem being worked around that regressed #7503.
+                var modelName = modelBindingContext.ModelName;
+
+                if (string.IsNullOrEmpty(modelBindingContext.ModelName) &&
+                    parameter.BindingInfo?.BinderModelName == null)
+                {
+                    // If we get here then this is a fallback case. The model name wasn't explicitly set
+                    // and we ended up with an empty prefix.
+                    modelName = modelBindingContext.FieldName;
+                }
+
+                // Run validation, we expect this to validate [Required].
+                baseObjectValidator.Validate(
+                    actionContext,
+                    modelBindingContext.ValidationState,
+                    modelName,
+                    modelBindingResult.Model,
+                    metadata);
+            }
         }
     }
 }

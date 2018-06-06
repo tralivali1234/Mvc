@@ -5,6 +5,7 @@ using System;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Mvc.ModelBinding
@@ -178,6 +179,69 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
             Assert.IsType<ClassValidator>(attribute);
         }
 
+        [Fact]
+        public void GetAttributesForParameter_NoAttributes()
+        {
+            // Arrange & Act
+            var attributes = ModelAttributes.GetAttributesForParameter(
+                typeof(MethodWithParamAttributesType)
+                    .GetMethod(nameof(MethodWithParamAttributesType.Method))
+                    .GetParameters()[0]);
+
+            // Assert
+            // Not exactly "no attributes" due to SerializableAttribute on object.
+            Assert.IsType<SerializableAttribute>(Assert.Single(attributes.Attributes));
+            Assert.Empty(attributes.ParameterAttributes);
+            Assert.Null(attributes.PropertyAttributes);
+            Assert.Equal(attributes.Attributes, attributes.TypeAttributes);
+        }
+
+        [Fact]
+        public void GetAttributesForParameter_SomeAttributes()
+        {
+            // Arrange & Act
+            var attributes = ModelAttributes.GetAttributesForParameter(
+                typeof(MethodWithParamAttributesType)
+                    .GetMethod(nameof(MethodWithParamAttributesType.Method))
+                    .GetParameters()[1]);
+
+            // Assert
+            Assert.Collection(
+                // Take(2) to ignore ComVisibleAttribute, SerializableAttribute, ... on int.
+                attributes.Attributes.Take(2),
+                attribute => Assert.IsType<RequiredAttribute>(attribute),
+                attribute => Assert.IsType<RangeAttribute>(attribute));
+            Assert.Collection(
+                attributes.ParameterAttributes,
+                attribute => Assert.IsType<RequiredAttribute>(attribute),
+                attribute => Assert.IsType<RangeAttribute>(attribute));
+            Assert.Null(attributes.PropertyAttributes);
+            Assert.Collection(
+                // Take(1) because the attribute or attributes after SerializableAttribute are framework-specific.
+                attributes.TypeAttributes.Take(1),
+                attribute => Assert.IsType<SerializableAttribute>(attribute));
+        }
+
+        [Fact]
+        public void GetAttributesForParameter_IncludesTypeAttributes()
+        {
+            // Arrange
+            var parameters = typeof(MethodWithParamAttributesType)
+                .GetMethod(nameof(MethodWithParamAttributesType.Method))
+                .GetParameters();
+
+            // Act
+            var attributes = ModelAttributes.GetAttributesForParameter(parameters[2]);
+
+            // Assert
+            Assert.Collection(attributes.Attributes,
+                attribute => Assert.IsType<BindRequiredAttribute>(attribute),
+                attribute => Assert.IsType<ClassValidator>(attribute));
+            Assert.IsType<BindRequiredAttribute>(Assert.Single(attributes.ParameterAttributes));
+            Assert.Null(attributes.PropertyAttributes);
+            Assert.IsType<ClassValidator>(Assert.Single(attributes.TypeAttributes));
+        }
+
         [ClassValidator]
         private class BaseModel
         {
@@ -238,7 +302,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
 
         private class ClassValidator : ValidationAttribute
         {
-            public override Boolean IsValid(Object value)
+            public override bool IsValid(object value)
             {
                 return true;
             }
@@ -264,6 +328,22 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
 
         [Bind]
         private class MetadataPropertyType
+        {
+        }
+
+        [IrrelevantAttribute] // We verify this is ignored
+        private class MethodWithParamAttributesType
+        {
+            [IrrelevantAttribute] // We verify this is ignored
+            public void Method(
+                object noAttributes,
+                [Required, Range(1, 100)] int validationAttributes,
+                [BindRequired] BaseModel mergedAttributes)
+            {
+            }
+        }
+
+        private class IrrelevantAttribute : Attribute
         {
         }
     }

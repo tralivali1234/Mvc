@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
@@ -614,7 +615,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
 
             // Assert
             Assert.True(modelState.IsValid);
-            Assert.Equal(1, modelState.Count);
+            Assert.Single(modelState);
 
             var entry = modelState["parameter"];
             Assert.Equal(ModelValidationState.Valid, entry.ValidationState);
@@ -1076,8 +1077,7 @@ namespace Microsoft.AspNetCore.Mvc.Internal
             var model = new ThrowingProperty();
 
             // Act & Assert
-            Assert.Throws(
-                typeof(InvalidTimeZoneException),
+            Assert.Throws<InvalidTimeZoneException>(
                 () =>
                 {
                     validator.Validate(actionContext, validationState, string.Empty, model);

@@ -12,6 +12,8 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
     /// </summary>
     public class DefaultModelBindingContext : ModelBindingContext
     {
+        private static readonly IValueProvider EmptyValueProvider = new CompositeValueProvider();
+
         private IValueProvider _originalValueProvider;
         private ActionContext _actionContext;
         private ModelStateDictionary _modelState;
@@ -272,7 +274,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
             var scope = EnterNestedScope();
 
             // Only filter if the new BindingSource affects the value providers. Otherwise we want
-            // to preserve the currrent state.
+            // to preserve the current state.
             if (modelMetadata.BindingSource != null && !modelMetadata.BindingSource.IsGreedy)
             {
                 ValueProvider = FilterValueProvider(OriginalValueProvider, modelMetadata.BindingSource);
@@ -296,7 +298,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
         {
             _stack.Push(_state);
 
-            Result = default(ModelBindingResult);
+            Result = default;
 
             return new NestedScope(this);
         }
@@ -314,13 +316,12 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
                 return valueProvider;
             }
 
-            var bindingSourceValueProvider = valueProvider as IBindingSourceValueProvider;
-            if (bindingSourceValueProvider == null)
+            if (!(valueProvider is IBindingSourceValueProvider bindingSourceValueProvider))
             {
                 return valueProvider;
             }
 
-            return bindingSourceValueProvider.Filter(bindingSource) ?? new CompositeValueProvider();
+            return bindingSourceValueProvider.Filter(bindingSource) ?? EmptyValueProvider;
         }
 
         private struct State
@@ -338,6 +339,6 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding
             public bool IsTopLevelObject;
 
             public ModelBindingResult Result;
-        };
+        }
     }
 }

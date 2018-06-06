@@ -6,13 +6,14 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
@@ -370,6 +371,25 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
         }
 
         [Fact]
+        public void CreateModel_ForClassWithNoParameterlessConstructor_AsElement_ThrowsException()
+        {
+            // Arrange
+            var expectedMessage = "Could not create an instance of type " +
+                $"'{typeof(ClassWithNoParameterlessConstructor)}'. Model bound complex types must not be abstract " +
+                "or value types and must have a parameterless constructor.";
+            var metadata = GetMetadataForType(typeof(ClassWithNoParameterlessConstructor));
+            var bindingContext = new DefaultModelBindingContext
+            {
+                ModelMetadata = metadata,
+            };
+            var binder = CreateBinder(metadata);
+
+            // Act & Assert
+            var exception = Assert.Throws<InvalidOperationException>(() => binder.CreateModelPublic(bindingContext));
+            Assert.Equal(expectedMessage, exception.Message);
+        }
+
+        [Fact]
         public void CreateModel_ForStructModelType_AsProperty_ThrowsException()
         {
             // Arrange
@@ -595,8 +615,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
             Assert.Single(modelStateDictionary);
 
             // Check Age error.
-            ModelStateEntry entry;
-            Assert.True(modelStateDictionary.TryGetValue("theModel.Age", out entry));
+            Assert.True(modelStateDictionary.TryGetValue("theModel.Age", out var entry));
             var modelError = Assert.Single(entry.Errors);
             Assert.Null(modelError.Exception);
             Assert.NotNull(modelError.ErrorMessage);
@@ -630,8 +649,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
             Assert.Single(modelStateDictionary);
 
             // Check Age error.
-            ModelStateEntry entry;
-            Assert.True(modelStateDictionary.TryGetValue("theModel.Age", out entry));
+            Assert.True(modelStateDictionary.TryGetValue("theModel.Age", out var entry));
             var modelError = Assert.Single(entry.Errors);
             Assert.Null(modelError.Exception);
             Assert.NotNull(modelError.ErrorMessage);
@@ -664,11 +682,10 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
             // Assert
             var modelStateDictionary = bindingContext.ModelState;
             Assert.False(modelStateDictionary.IsValid);
-            Assert.Equal(1, modelStateDictionary.Count);
+            Assert.Single(modelStateDictionary);
 
             // Check Age error.
-            ModelStateEntry entry;
-            Assert.True(modelStateDictionary.TryGetValue("theModel.Age", out entry));
+            Assert.True(modelStateDictionary.TryGetValue("theModel.Age", out var entry));
             Assert.Equal(ModelValidationState.Invalid, entry.ValidationState);
 
             var modelError = Assert.Single(entry.Errors);
@@ -1024,7 +1041,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
 
             // Assert
             Assert.False(bindingContext.ModelState.IsValid);
-            Assert.Equal(1, bindingContext.ModelState["foo.NameNoAttribute"].Errors.Count);
+            Assert.Single(bindingContext.ModelState["foo.NameNoAttribute"].Errors);
             Assert.Equal("This is a different exception." + Environment.NewLine
                        + "Parameter name: value",
                          bindingContext.ModelState["foo.NameNoAttribute"].Errors[0].Exception.Message);
@@ -1032,7 +1049,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
 
         private static TestableComplexTypeModelBinder CreateBinder(ModelMetadata metadata)
         {
-            var options = new TestOptionsManager<MvcOptions>();
+            var options = Options.Create(new MvcOptions());
             var setup = new MvcCoreMvcOptionsSetup(new TestHttpRequestStreamReaderFactory());
             setup.Configure(options.Value);
 
@@ -1095,6 +1112,16 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
             }
             public double X { get; }
             public double Y { get; }
+        }
+
+        private class ClassWithNoParameterlessConstructor
+        {
+            public ClassWithNoParameterlessConstructor(string name)
+            {
+                Name = name;
+            }
+
+            public string Name { get; set; }
         }
 
         private class BindingOptionalProperty
@@ -1354,7 +1381,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
             }
 
             public TestableComplexTypeModelBinder(IDictionary<ModelMetadata, IModelBinder> propertyBinders)
-                : base(propertyBinders)
+                : base(propertyBinders, NullLoggerFactory.Instance)
             {
                 Results = new Dictionary<ModelMetadata, ModelBindingResult>();
             }
@@ -1368,8 +1395,7 @@ namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
                     return base.BindModelAsync(bindingContext);
                 }
 
-                ModelBindingResult result;
-                if (Results.TryGetValue(bindingContext.ModelMetadata, out result))
+                if (Results.TryGetValue(bindingContext.ModelMetadata, out var result))
                 {
                     bindingContext.Result = result;
                 }

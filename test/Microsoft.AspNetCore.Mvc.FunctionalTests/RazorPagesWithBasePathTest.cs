@@ -1,7 +1,7 @@
 ﻿// Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
-using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -13,7 +13,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
     {
         public RazorPagesWithBasePathTest(MvcTestFixture<RazorPagesWebSite.StartupWithBasePath> fixture)
         {
-            Client = fixture.Client;
+            Client = fixture.CreateDefaultClient();
         }
 
         public HttpClient Client { get; }
@@ -115,7 +115,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             Assert.Equal("/Login?ReturnUrl=%2FConventions%2FAuthFolder", response.Headers.Location.PathAndQuery);
         }
 
-         [Fact]
+        [Fact]
         public async Task AuthConvention_AppliedToFolders_CanByOverridenByFiltersOnModel()
         {
             // Act
@@ -130,27 +130,29 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
         {
             // Test for https://github.com/aspnet/Mvc/issues/5915
             //Arrange
-            var expected = $"Hello from _ViewStart{Environment.NewLine}Hello from /Pages/WithViewStart/Index.cshtml!";
+            var expected = @"Hello from _ViewStart
+Hello from /Pages/WithViewStart/Index.cshtml!";
 
             // Act
             var response = await Client.GetStringAsync("/WithViewStart");
 
             // Assert
-            Assert.Equal(expected, response.Trim());
+            Assert.Equal(expected, response, ignoreLineEndingDifferences: true);
         }
 
         [Fact]
         public async Task ViewStart_IsDiscoveredForFilesOutsidePageRoot()
         {
             //Arrange
-            var newLine = Environment.NewLine;
-            var expected = $"Hello from _ViewStart at root{newLine}Hello from _ViewStart{newLine}Hello from page";
+            var expected = @"Hello from _ViewStart at root
+Hello from _ViewStart
+Hello from page";
 
             // Act
             var response = await Client.GetStringAsync("/WithViewStart/ViewStartAtRoot");
 
             // Assert
-            Assert.Equal(expected, response.Trim());
+            Assert.Equal(expected, response.Trim(), ignoreLineEndingDifferences: true);
         }
 
         [Fact]
@@ -212,14 +214,14 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             var response = await Client.GetStringAsync("/TagHelper/CrossPost");
 
             // Assert
-            Assert.Equal(expected, response.Trim());
+            Assert.Equal(expected, response.Trim(), ignoreLineEndingDifferences: true);
         }
 
         [Fact]
         public async Task FormActionTagHelper_WithPage_AllowsPostingToAnotherPage()
         {
             //Arrange
-            var expected = 
+            var expected =
 @"<button formaction=""/TagHelper/CrossPost/10"" />
 <input type=""submit"" formaction=""/TagHelper/CrossPost/10"" />
 <input type=""image"" formaction=""/TagHelper/CrossPost/10"" />
@@ -231,7 +233,7 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
             var response = await Client.GetStringAsync("/TagHelper/FormAction");
 
             // Assert
-            Assert.Equal(expected, response.Trim());
+            Assert.Equal(expected, response, ignoreLineEndingDifferences: true);
         }
 
         [Fact]
@@ -273,6 +275,282 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
 
             // Assert
             Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task Pages_ReturnsFromPagesSharedDirectory()
+        {
+            // Arrange
+            var expected = "Hello from /Pages/Shared/";
+
+            // Act
+            var response = await Client.GetStringAsync("/SearchInPages");
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task PagesInAreas_Work()
+        {
+            // Arrange
+            var expected = "Hello from a page in Accounts area";
+
+            // Act
+            var response = await Client.GetStringAsync("/Accounts/About");
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task PagesInAreas_CanHaveRouteTemplates()
+        {
+            // Arrange
+            var expected = "The id is 42";
+
+            // Act
+            var response = await Client.GetStringAsync("/Accounts/PageWithRouteTemplate/42");
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task PagesInAreas_CanGenerateLinksToControllersAndPages()
+        {
+            // Arrange
+            var expected =
+@"<a href=""/Accounts/Manage/RenderPartials"">Link inside area</a>
+<a href=""/Products/List/old/20"">Link to external area</a>
+<a href=""/Accounts"">Link to area action</a>
+<a href=""/Admin"">Link to non-area page</a>";
+
+            // Act
+            var response = await Client.GetStringAsync("/Accounts/PageWithLinks");
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task PagesInAreas_CanGenerateRelativeLinks()
+        {
+            // Arrange
+            var expected =
+@"<a href=""/Accounts/PageWithRouteTemplate/1"">Parent directory</a>
+<a href=""/Accounts/Manage/RenderPartials"">Sibling directory</a>
+<a href=""/Products/List"">Go back to root of different area</a>";
+
+            // Act
+            var response = await Client.GetStringAsync("/Accounts/RelativeLinks");
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task PagesInAreas_CanDiscoverViewsFromAreaAndSharedDirectories()
+        {
+            // Arrange
+            var expected =
+@"Layout in /Views/Shared
+Partial in /Areas/Accounts/Pages/Manage/
+
+Partial in /Areas/Accounts/Pages/
+
+Partial in /Areas/Accounts/Pages/
+
+Partial in /Areas/Accounts/Views/Shared/
+
+Hello from /Pages/Shared/";
+
+            // Act
+            var response = await Client.GetStringAsync("/Accounts/Manage/RenderPartials");
+
+            // Assert
+            Assert.Equal(expected, response.Trim());
+        }
+
+        [Fact]
+        public async Task AuthorizeFolderConvention_CanBeAppliedToAreaPages()
+        {
+            // Act
+            var response = await Client.GetAsync("/Accounts/RequiresAuth");
+
+            // Assert
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+            Assert.Equal("/Login?ReturnUrl=%2FAccounts%2FRequiresAuth", response.Headers.Location.PathAndQuery);
+        }
+
+        [Fact]
+        public async Task AllowAnonymouseToPageConvention_CanBeAppliedToAreaPages()
+        {
+            // Act
+            var response = await Client.GetStringAsync("/Accounts/RequiresAuth/AllowAnonymous");
+
+            // Assert
+            Assert.Equal("Hello from AllowAnonymous", response.Trim());
+        }
+
+        // These test is important as it covers a feature that allows razor pages to use a different
+        // model at runtime that wasn't known at compile time. Like a non-generic model used at compile
+        // time and overrided at runtime with a closed-generic model that performs the actual implementation.
+        // An example of this is how the Identity UI library defines a base page model in their views,
+        // like how the Register.cshtml view defines its model as RegisterModel and then, at runtime it replaces
+        // that model with RegisterModel<TUser> where TUser is the type of the user used to configure identity.
+        [Fact]
+        public async Task PageConventions_CanBeUsedToCustomizeTheModelType()
+        {
+            // Act
+            var response = await Client.GetAsync("/CustomModelTypeModel");
+
+            // Assert
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var content = await response.Content.ReadAsStringAsync();
+            Assert.Contains("<h2>User</h2>", content);
+        }
+
+        [Fact]
+        public async Task PageConventions_CustomizedModelCanPostToHandlers()
+        {
+            // Arrange
+            var getPage = await Client.GetAsync("/CustomModelTypeModel");
+            var token = AntiforgeryTestHelper.RetrieveAntiforgeryToken(await getPage.Content.ReadAsStringAsync(), "");
+            var cookie = AntiforgeryTestHelper.RetrieveAntiforgeryCookie(getPage);
+
+            var message = new HttpRequestMessage(HttpMethod.Post, "/CustomModelTypeModel");
+            message.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["__RequestVerificationToken"] = token,
+                ["ConfirmPassword"] = "",
+                ["Password"] = "",
+                ["Email"] = ""
+            });
+            message.Headers.TryAddWithoutValidation("Cookie", $"{cookie.Key}={cookie.Value}");
+
+            // Act
+            var response = await Client.SendAsync(message);
+
+            // Assert
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var content = await response.Content.ReadAsStringAsync();
+            Assert.Contains("is required.", content);
+        }
+
+        [Fact]
+        public async Task PageConventions_CustomizedModelCanWorkWithModelState()
+        {
+            // Arrange
+            var getPage = await Client.GetAsync("/CustomModelTypeModel");
+            var token = AntiforgeryTestHelper.RetrieveAntiforgeryToken(await getPage.Content.ReadAsStringAsync(), "");
+            var cookie = AntiforgeryTestHelper.RetrieveAntiforgeryCookie(getPage);
+
+            var message = new HttpRequestMessage(HttpMethod.Post, "/CustomModelTypeModel");
+            message.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["__RequestVerificationToken"] = token,
+                ["Email"] = "javi@example.com",
+                ["Password"] = "Password.12$",
+                ["ConfirmPassword"] = "Password.12$",
+            });
+            message.Headers.TryAddWithoutValidation("Cookie", $"{cookie.Key}={cookie.Value}");
+
+            // Act
+            var response = await Client.SendAsync(message);
+
+            // Assert
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+            Assert.Equal("/", response.Headers.Location.ToString());
+        }
+
+        [Fact]
+        public async Task ValidationAttributes_OnTopLevelProperties()
+        {
+            // Act
+            var response = await Client.GetStringAsync("/Validation/PageWithValidation?age=71");
+
+            // Assert
+            Assert.Contains("Name is required", response);
+            Assert.Contains("18 &#x2264; Age &#x2264; 60", response);
+        }
+
+        [Fact]
+        public async Task ValidationAttributes_OnHandlerParameters()
+        {
+            // Act
+            var response = await Client.GetStringAsync("/Validation/PageHandlerWithValidation");
+
+            // Assert
+            Assert.Contains("Name is required", response);
+        }
+
+        [Fact]
+        public async Task PagesFromClassLibraries_CanBeServed()
+        {
+            // Act
+            var response = await Client.GetStringAsync("/ClassLibraryPages/Served");
+
+            // Assert
+            Assert.Contains("This page is served from RazorPagesClassLibrary", response);
+        }
+
+        [Fact]
+        public async Task PagesFromClassLibraries_CanBeOverriden()
+        {
+            // Act
+            var response = await Client.GetStringAsync("/ClassLibraryPages/Overriden");
+
+            // Assert
+            Assert.Contains("This page is overriden by RazorPagesWebSite", response);
+        }
+
+        [Fact]
+        public async Task ViewDataAttributes_SetInPageModel_AreTransferedToLayout()
+        {
+            // Arrange
+            var document = await Client.GetHtmlDocumentAsync("/ViewData/ViewDataInPage");
+
+            // Assert
+            var description = document.QuerySelector("meta[name='description']").Attributes["content"];
+            Assert.Equal("Description set in handler", description.Value);
+
+            var keywords = document.QuerySelector("meta[name='keywords']").Attributes["content"];
+            Assert.Equal("Value set in filter", keywords.Value);
+
+            var author = document.QuerySelector("meta[name='author']").Attributes["content"];
+            Assert.Equal("Property with key", author.Value);
+
+            var title = document.QuerySelector("title").TextContent;
+            Assert.Equal("Title with default value", title);
+        }
+
+        [Fact]
+        public async Task ViewDataAttributes_SetInPageWithoutModel_AreTransferedToLayout()
+        {
+            // Arrange
+            var document = await Client.GetHtmlDocumentAsync("/ViewData/ViewDataInPageWithoutModel");
+
+            // Assert
+            var description = document.QuerySelector("meta[name='description']").Attributes["content"];
+            Assert.Equal("Description set in page handler", description.Value);
+
+            var title = document.QuerySelector("title").TextContent;
+            Assert.Equal("Default value", title);
+        }
+
+        [Fact]
+        public async Task ViewDataProperties_SetInPageModel_AreTransferredToViewComponents()
+        {
+            // Act
+            var document = await Client.GetHtmlDocumentAsync("ViewData/ViewDataToViewComponentPage");
+
+            // Assert
+            var message = document.QuerySelector("#message").TextContent;
+            Assert.Equal("Message set in handler", message);
+
+            var title = document.QuerySelector("title").TextContent;
+            Assert.Equal("View Data in Pages", title);
         }
     }
 }

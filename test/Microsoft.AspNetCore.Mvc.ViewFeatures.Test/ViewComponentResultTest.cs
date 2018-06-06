@@ -12,9 +12,9 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Html;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Internal;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
-using Microsoft.AspNetCore.Mvc.TestCommon;
 using Microsoft.AspNetCore.Mvc.ViewComponents;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.Mvc.ViewFeatures.Internal;
@@ -564,7 +564,7 @@ namespace Microsoft.AspNetCore.Mvc
             services.AddSingleton<DiagnosticSource>(diagnosticSource);
             services.AddSingleton<ViewComponentInvokerCache>();
             services.AddSingleton<ExpressionTextCache>();
-            services.AddSingleton<IOptions<MvcViewOptions>, TestOptionsManager<MvcViewOptions>>();
+            services.AddSingleton(Options.Create(new MvcViewOptions()));
             services.AddTransient<IViewComponentHelper, DefaultViewComponentHelper>();
             services.AddSingleton<IViewComponentSelector, DefaultViewComponentSelector>();
             services.AddSingleton<IViewComponentDescriptorCollectionProvider, DefaultViewComponentDescriptorCollectionProvider>();
@@ -579,7 +579,7 @@ namespace Microsoft.AspNetCore.Mvc
             services.AddSingleton<ITempDataProvider, SessionStateTempDataProvider>();
             services.AddSingleton<HtmlEncoder, HtmlTestEncoder>();
             services.AddSingleton<IViewBufferScope, TestViewBufferScope>();
-            services.AddSingleton<ViewComponentResultExecutor>();
+            services.AddSingleton<IActionResultExecutor<ViewComponentResult>, ViewComponentResultExecutor>();
 
             return services;
         }
